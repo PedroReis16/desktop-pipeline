@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/Libraries/">
+    <Project Path="Libraries/Desktop.Database/Desktop.Database.csproj" />
+    <Project Path="Libraries/Desktop.Models/Desktop.Models.csproj" />
+  </Folder>
+  <Folder Name="/Tests/" />
+  <Folder Name="/Tests/Integration/">
+    <Project Path="Tests/Integration/Desktop.Export.IntegrationTests/Destkop.Export.IntegrationTests.csproj" />
+    <Project Path="Tests/Integration/Desktop.Import.IntegrationTests/Destkop.Import.IntegrationTests.csproj" />
+    <Project Path="Tests/Integration/Desktop.Instance.IntegrationTests/Destkop.Instance.IntegrationTests.csproj" />
+    <Project Path="Tests/Integration/Desktop.Integration.IntegrationTests/Destkop.Integration.IntegrationTests.csproj" />
+    <Project Path="Tests/Integration/Desktop.InterfaceAPI.IntegrationTests/Destkop.InterfaceAPI.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/Tests/Unit/">
+    <Project Path="Tests/Unit/Desktop.Database.UnitTests/Desktop.Database.UnitTests.csproj" />
+    <Project Path="Tests/Unit/Desktop.Export.UnitTests/Desktop.Export.UnitTests.csproj" />
+    <Project Path="Tests/Unit/Desktop.Import.UnitTests/Desktop.Import.UnitTests.csproj" />
+    <Project Path="Tests/Unit/Desktop.Instance.UnitTests/Desktop.Instance.UnitTests.csproj" />
+    <Project Path="Tests/Unit/Desktop.Integration.UnitTests/Desktop.Integration.UnitTests.csproj" />
+    <Project Path="Tests/Unit/Desktop.InterfaceAPI.UnitTests/Desktop.InterfaceAPI.UnitTests.csproj" />
+    <Project Path="Tests/Unit/Desktop.Models.UnitTests/Desktop.Models.UnitTests.csproj" />
+  </Folder>
+  <Project Path="Desktop.Export/Desktop.Export.csproj" />
+  <Project Path="Desktop.Import/Desktop.Import.csproj" />
+  <Project Path="Desktop.Instance/Desktop.Instance.csproj" />
+  <Project Path="Desktop.Integration/Desktop.Integration.csproj" />
+  <Project Path="Desktop.InterfaceAPI/Desktop.InterfaceAPI.csproj" />
+</Solution>
