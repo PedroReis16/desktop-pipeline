@@ -11,7 +11,7 @@
     <DefineConstants>Version=$(VersionNumber);PublishDir=$(PublishDir)</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\..\workerservices\Desktop.Integration\Desktop.Integration.csproj" />
+    <ProjectReference Include="..\..\..\workerservices\Desktop.InterfaceAPI\Desktop.InterfaceAPI.csproj" />
     <ProjectReference Include="..\Desktop.InstallerShared\Desktop.InstallerShared.wixproj" />
   </ItemGroup>
   <ItemGroup>

@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-    xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
-    xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+    xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
 
     <Bundle 
         Version="$(VERSION)" 
@@ -11,18 +10,14 @@
         Manufacturer="Vigia" 
         HelpTelephone="+55 (11) 99999-9999"
         AboutUrl="https://vigia.com.br" 
-        UpdateUrl="https://vigia.com.br" 
-        SplashScreenSourceFile="./Assets/splash.png" 
-        IconSourceFile="./Assets/app-icon.png">
+        UpdateUrl="https://vigia.com.br">
 
         <BootstrapperApplication>
             <bal:WixStandardBootstrapperApplication 
-                Theme="hyperlinkSidebarLicense" 
+                Theme="hyperlinkLicense" 
                 LicenseUrl="" 
                 LogoFile="./Assets/app-icon.png" 
-                LogoSideFile="./Assets/side-image.png" 
-                ShowVersion="yes" 
-            />
+                ShowVersion="yes" />
         </BootstrapperApplication>
 
         <Chain>

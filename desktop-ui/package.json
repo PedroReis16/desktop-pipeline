@@ -17,7 +17,7 @@
   "packageManager": "npm@11.17.0",
   "build": {
     "appId": "com.desktoppipeline.desktop-ui",
-    "productName": "Desktop UI",
+    "productName": "DesktopUI",
     "directories": {
       "output": "dist_electron"
     },
@@ -27,7 +27,14 @@
     ],
     "win": {
       "target": "msi",
+      "icon": "build/icon.ico",
       "artifactName": "Desktop.Desktop.msi"
+    },
+    "msi": {
+      "warningsAsErrors": false,
+      "oneClick": false,
+      "perMachine": true,
+      "additionalLightArgs": ["-sval"]
     },
     "mac": {
       "target": "dmg"

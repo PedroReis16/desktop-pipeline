@@ -152,7 +152,21 @@ if (-not (Test-Path $uiDir)) {
     Write-Host "Pasta desktop-ui nao encontrada em: $uiDir" -ForegroundColor Red
     exit 1
 }
-Push-Location $uiDir
+
+# Copia para staging fora do workspace: evita EBUSY no Windows quando o IDE (Cursor/VS Code)
+# mantem locks em node_modules/electron durante npm ci.
+$uiBuildDir = Join-Path $env:TEMP "desktop-ui-release-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+Write-Host "  Preparando staging em: $uiBuildDir" -ForegroundColor Cyan
+New-Item -ItemType Directory -Force -Path $uiBuildDir | Out-Null
+$robocopyExit = 0
+& robocopy $uiDir $uiBuildDir /E /XD node_modules dist dist_electron .angular /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
+$robocopyExit = $LASTEXITCODE
+if ($robocopyExit -ge 8) {
+    Write-Host "Falha ao copiar desktop-ui para staging (robocopy exit $robocopyExit). Build cancelado." -ForegroundColor Red
+    exit $robocopyExit
+}
+
+Push-Location $uiBuildDir
 try {
     if (Test-Path "package-lock.json") {
         npm ci
@@ -177,7 +191,7 @@ try {
     Pop-Location
 }
 
-$electronMsi = Join-Path $uiDir "dist_electron\Desktop.Desktop.msi"
+$electronMsi = Join-Path $uiBuildDir "dist_electron\Desktop.Desktop.msi"
 if (-not (Test-Path $electronMsi)) {
     Write-Host "MSI do Electron nao encontrado (esperado: $electronMsi). Verifique build.win.artifactName em desktop-ui/package.json." -ForegroundColor Red
     exit 1
@@ -186,6 +200,9 @@ $bundlePayloadDir = Join-Path $solutionRoot "installers\windows\Desktop.Services
 New-Item -ItemType Directory -Force -Path $bundlePayloadDir | Out-Null
 Copy-Item -Path $electronMsi -Destination (Join-Path $bundlePayloadDir "Desktop.Desktop.msi") -Force
 Write-Host "MSI da interface copiado para o bundle: $(Join-Path $bundlePayloadDir 'Desktop.Desktop.msi')" -ForegroundColor Green
+if (Test-Path $uiBuildDir) {
+    Remove-Item -Path $uiBuildDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 
 Write-Host "=== INICIANDO BUILD DOS INSTALADORES ===" -ForegroundColor Cyan
@@ -197,43 +214,43 @@ if($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.Export.Installer/Desktop.Export.Installer.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.Export.Installer/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.Export.Installer falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.Import.Installer/Desktop.Import.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.Import.Installer/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.Import.Installer falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.Instance.Installer/Desktop.Instance.Installer.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.Instance.Installer/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.Instance.Installer falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.Integration.Installer/Desktop.Integration.Installer.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.Integration.Installer/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.Integration.Installer falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.InterfaceAPI.Installer/Desktop.InterfaceAPI.Installer.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.InterfaceAPI.Installer/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.InterfaceAPI.Installer falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.Cmd.Installer/Desktop.Cmd.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.Cmd.Installer/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.Cmd.Installer falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
-dotnet restore ./installers/windows/Desktop.ServicesInstaller/Desktop.ServicesInstaller.wixproj /p:VersionNumber="$version" /p:Version="$version"
+dotnet restore ./installers/windows/Desktop.ServicesInstaller/ /p:VersionNumber="$version" /p:Version="$version"
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore do projeto Desktop.ServicesInstaller falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE

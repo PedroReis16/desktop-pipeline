@@ -28,9 +28,9 @@
 
       <Directory Id="CMDFOLDER" Name="CMD">
         <Component Id="DesktopCmdExe" Bitness="always64" Guid="64193D93-257A-4BC9-B27B-5DD334155788">
-          <!-- Binário gerado por: go build -o desktop-cmd/bin/desktop.exe -->
-          <File Id="DesktopServicesExe"
-                Source="..\..\..\desktop-services\bin\desktop-services.exe"
+          <!-- Binário gerado por new-release-winx64.ps1: go build -o desktop-cmd/bin/desktop.exe -->
+          <File Id="DesktopCmdExeFile"
+                Source="..\..\..\desktop-cmd\bin\desktop.exe"
                 KeyPath="yes" />
           <!-- Adiciona INSTALLFOLDER\CMD ao PATH para permitir executar "desktop" globalmente. -->
           <Environment Id="AddCmdFolderToPath"

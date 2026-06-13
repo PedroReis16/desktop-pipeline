@@ -1,5 +1,6 @@
 <Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
+    <OutputName>Desktop.Cmd.Installer</OutputName>
     <DefineConstants>Version=$(VersionNumber)</DefineConstants>
   </PropertyGroup>
   <ItemGroup>

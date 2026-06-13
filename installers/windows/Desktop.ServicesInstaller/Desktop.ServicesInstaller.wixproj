@@ -2,26 +2,15 @@
   <PropertyGroup>
     <OutputName>DesktopServices</OutputName>
     <OutputType>Bundle</OutputType>
-  </PropertyGroup>
-  <PropertyGroup>
     <DefineConstants>VERSION=$(VersionNumber)</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <Content Include="Assets\app-icon.ico" />
     <Content Include="Assets\app-icon.png" />
-    <Content Include="Assets\side-image.png" />
-    <Content Include="Assets\splash.jpg" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="WixToolset.BootstrapperApplications.wixext" Version="6.0.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Desktop.InstallerShared\Desktop.InstallerShared.wixproj" />
-    <ProjectReference Include="..\Desktop.Export.Installer\Desktop.Export.Installer.wixproj" />
-    <ProjectReference Include="..\Desktop.Import.Installer\Desktop.Import.Installer.wixproj" />
-    <ProjectReference Include="..\Desktop.Instance.Installer\Desktop.Instance.wixproj" />
-    <ProjectReference Include="..\Desktop.Integration.Installer\Desktop.Integration.Installer.wixproj" />
-    <ProjectReference Include="..\Desktop.InterfaceAPI.Installer\Desktop.InterfaceAPI.Installer.wixproj" />
-    <ProjectReference Include="..\Desktop.Cmd.Installer\Desktop.Cmd.wixproj" />
   </ItemGroup>
 </Project>

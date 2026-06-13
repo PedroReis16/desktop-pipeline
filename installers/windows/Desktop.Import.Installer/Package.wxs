@@ -38,7 +38,7 @@
                 <Component Id="ServiceExecutable" Bitness="always64">
                   <!-- Copies the $(ExeName).exe file using the project reference preprocessor variables -->
                   <File Id="$(ExeName)"
-                    Source="$(var.Desktop.Instance.TargetDir)publish\$(ExeName).exe"
+                    Source="$(var.Desktop.Import.TargetDir)publish\$(ExeName).exe"
                     KeyPath="true" />
 
                   <!-- Remove all files from the INSTALLFOLDER on uninstall -->
