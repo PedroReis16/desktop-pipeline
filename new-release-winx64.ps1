@@ -129,7 +129,7 @@ try {
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
     $env:GOOS = "windows"
     $env:GOARCH = "amd64"
-    go build -ldflags "-s -w" -o (Join-Path $binDir "desktop.exe") ./cmd/desktop
+    go build -ldflags "-s -w -X main.version=$version" -o (Join-Path $binDir "desktop.exe") ./cmd/desktop
     if($LASTEXITCODE -ne 0) {
         Write-Host "go build em desktop-cmd falhou. Build cancelado." -ForegroundColor Red
         exit $LASTEXITCODE
