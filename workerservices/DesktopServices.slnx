@@ -1,4 +1,14 @@
 <Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <BuildType Name="ServicesWinX64" />
+    <BuildType Name="ServicesLinuxX64" />
+    <BuildType Name="HomologWinX64" />
+    <BuildType Name="HomologLinuxX64" />
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
   <Folder Name="/Libraries/">
     <Project Path="Libraries/Desktop.Database/Desktop.Database.csproj" />
     <Project Path="Libraries/Desktop.Models/Desktop.Models.csproj" />

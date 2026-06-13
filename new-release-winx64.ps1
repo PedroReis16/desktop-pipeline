@@ -53,13 +53,13 @@ foreach ($dir in $buildDirs | Select-Object -Unique) {
 
 # 2. Executar dotnet clean
 Write-Host "2. Executando dotnet clean..." -ForegroundColor Cyan
-dotnet clean ./workerservices/DesktopServices.sln --configuration $projectBuild
+dotnet clean ./workerservices/DesktopServices.slnx --configuration $projectBuild
 
 # 3. Restaurar pacotes
 Write-Host "3. Restaurando pacotes NuGet..." -ForegroundColor Cyan
 
 # Restore com RID, configuracao e plataforma para alinhar com os perfis de publish (evita NETSDK1047/NETSDK1094 com --no-restore)
-dotnet restore ./workerservices/DesktopServices.sln -r win-x64 /p:Configuration=$projectBuild /p:Platform=x64 /p:PublishReadyToRun=true
+dotnet restore ./workerservices/DesktopServices.slnx -r win-x64 /p:Configuration=$projectBuild /p:Platform=x64 /p:PublishReadyToRun=true
 if($LASTEXITCODE -ne 0) {
     Write-Host "Restore da solucao workerservices com RID win-x64 falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
@@ -69,9 +69,9 @@ Write-Host "=== LIMPEZA CONCLUIDA ===" -ForegroundColor Green
 
 Write-Host "=== INICIANDO PUBLICACAO DOS PROJETOS  ===" -ForegroundColor Cyan
 
-dotnet build ./workerservices/DesktopServices.sln --configuration $projectBuild /p:Platform=x64 --no-restore
+dotnet build ./workerservices/DesktopServices.slnx --configuration $projectBuild /p:Platform=x64 --no-restore
 if($LASTEXITCODE -ne 0) {
-    Write-Host "Build do projeto DesktopServices.sln falhou. Build cancelado." -ForegroundColor Red
+    Write-Host "Build do projeto DesktopServices.slnx falhou. Build cancelado." -ForegroundColor Red
     exit $LASTEXITCODE
 }
 
