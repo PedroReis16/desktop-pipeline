@@ -1,0 +1,41 @@
+name: Continuous Integration
+
+on:
+    pull_request:
+        branches:
+            - master
+            - develop
+        types:
+            - opened
+            - reopened
+            - synchronize
+            - ready_for_review
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    # ─────────────────────────────────────────────
+    # 1. DETECÇÃO DE MUDANÇAS
+    # Constrói uma matriz dinâmica com apenas os projetos
+    # que tiveram arquivos alterados nesta PR.
+    # ─────────────────────────────────────────────
+    detect-changes:
+        name: Detect changed projects
+        runs-on: ubuntu-latest
+        outputs:
+            projects_matrix: ${{ steps.compute_matrix.outputs.projects_matrix }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                fetch-depth: 0
+
+            - name: Detect changed paths
+              id: filter
+              uses: dorny/paths-filter@v3
+              with:
+                token: ${{github.token}}
+                predicate-quantifier: every
+                filters: |
+                
