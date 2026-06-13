@@ -1,0 +1,6 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <BindFiles>true</BindFiles>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?define Name = "Desktop.Cmd" ?>
+<?define Description = "Ferramenta de linha de comando Desktop (Go)" ?>
+<?define Manufacturer = "Vigia" ?>
+<?define Version = "$(var.Version)" ?>
+<?define UpgradeCode = "374AED1B-0EEE-4800-9315-BA6687B4C193" ?>
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="$(Name)"
+           Manufacturer="$(Manufacturer)"
+           Version="$(Version)"
+           UpgradeCode="$(var.UpgradeCode)"
+           Compressed="true"
+           Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="Uma versão mais recente do [ProductName] já está instalada. O instalador será encerrado." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="INSTALLFOLDER_Permission" Guid="4C5E02F8-5F59-4895-8A06-626ABCDD38A5">
+        <CreateFolder>
+          <util:PermissionEx User="Users" GenericAll="yes"/>
+        </CreateFolder>
+      </Component>
+
+      <Directory Id="CMDFOLDER" Name="CMD">
+        <Component Id="DesktopCmdExe" Bitness="always64" Guid="64193D93-257A-4BC9-B27B-5DD334155788">
+          <!-- Binário gerado por: go build -o desktop-cmd/bin/desktop.exe -->
+          <File Id="DesktopServicesExe"
+                Source="..\..\..\desktop-services\bin\desktop-services.exe"
+                KeyPath="yes" />
+          <!-- Adiciona INSTALLFOLDER\CMD ao PATH para permitir executar "desktop" globalmente. -->
+          <Environment Id="AddCmdFolderToPath"
+                       Name="PATH"
+                       Value="[CMDFOLDER]"
+                       Action="set"
+                       Part="last"
+                       System="yes" />
+        </Component>
+      </Directory>
+    </DirectoryRef>
+
+    <Feature Id="MainFeature" Title="$(Name) Setup" Level="1" Description="$(Description)">
+      <ComponentRef Id="INSTALLFOLDER_Permission" />
+      <ComponentRef Id="DesktopCmdExe" />
+    </Feature>
+  </Package>
+</Wix>

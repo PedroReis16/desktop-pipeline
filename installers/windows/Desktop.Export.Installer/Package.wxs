@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- Define the variables in "$(var.*) expressions" -->
+<?define Name = "Desktop.Export" ?>
+<?define ExeName = "Desktop.Export" ?>
+<?define Description = "Serviço dedicado a exportação de dados do Desktop" ?>
+<?define Manufacturer = "Vigia" ?>
+<?define Version = "$(var.Version)" ?>
+<?define UpgradeCode = "E651BD44-DB2E-48D4-BA79-C2B9CE101C1D" ?>
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+    <Package Name="$(Name)"
+             Manufacturer="$(Manufacturer)"
+             Version="$(Version)"
+             UpgradeCode="$(var.UpgradeCode)"
+             Compressed="true"
+             Scope="perMachine">
+
+        <!-- Allow upgrades and prevent downgrades -->
+        <MajorUpgrade DowngradeErrorMessage="Uma versão mais recente do [ProductName] já está instalada. O instalador será encerrado." />
+
+        <!-- Define the directory structure -->
+        <MediaTemplate EmbedCab="yes" />
+
+        <!-- The files inside this DirectoryRef are linked to
+             the App.WindowsService directory via INSTALLFOLDER -->
+        <DirectoryRef Id="INSTALLFOLDER">
+
+            <!-- Give permission to all Users for INSTALLFOLDER -->
+            <Component Id="INSTALLFOLDER_Permission" Guid="6519C04E-1232-4B4F-B16D-E47389F30AC2">
+              <CreateFolder>
+                <util:PermissionEx User="Users" GenericAll="yes"/>
+              </CreateFolder>
+            </Component>
+
+            <Directory Id="SERVICEFOLDER" Name="SERVICES\$(Name)">
+                <Component Id="ServiceExecutable" Bitness="always64">
+                  <!-- Copies the $(ExeName).exe file using the project reference preprocessor variables -->
+                  <File Id="$(ExeName)"
+                    Source="$(var.Desktop.Export.TargetDir)publish\$(ExeName).exe"
+                    KeyPath="true" />
+
+                  <!-- Remove all files from the INSTALLFOLDER on uninstall -->
+                  <RemoveFile Id="ALLFILES" Name="*.*" On="both" />
+
+                  <!-- Tell WiX to install the Service -->
+                  <ServiceInstall Id="ServiceInstaller"
+                                  Type="ownProcess"
+                                  Name="$(Name)"
+                                  DisplayName="$(Name)"
+                                  Description="$(Description)"
+                                  ErrorControl="normal">
+                    <util:ServiceConfig ServiceName="$(Name)"
+                                        FirstFailureActionType="restart"
+                                        SecondFailureActionType="restart"
+                                        ThirdFailureActionType="restart"
+                                        RestartServiceDelayInSeconds="10"
+                                        />
+                  </ServiceInstall>
+
+                  <!-- Tell WiX to start the Service -->
+                  <ServiceControl Id="StartService"
+                                  Stop="both"
+                                  Remove="uninstall"
+                                  Name="$(Name)"
+                                  Wait="true" />
+                </Component>
+            </Directory>
+        </DirectoryRef>
+
+         <!-- Tell WiX to install the files -->
+        <Feature Id="Service" Title="$(Name) Setup" Level="1">
+          <ComponentRef Id="INSTALLFOLDER_Permission" />
+          <ComponentRef Id="ServiceExecutable" />
+          <ComponentGroupRef Id="PublishedComponents" />
+        </Feature>
+
+    </Package>
+</Wix>

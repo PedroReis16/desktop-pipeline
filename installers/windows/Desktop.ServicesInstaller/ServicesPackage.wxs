@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <PackageGroup Id="DesktopServicesPackage">
+                  
+      <MsiPackage Id="Export.Installer"
+                  SourceFile="Desktop.Export.Installer.msi"
+                  />
+
+      <MsiPackage Id="Import.Installer"
+                  SourceFile="Desktop.Import.Installer.msi"
+                  />
+
+      <MsiPackage Id="Desktop.Instance.Installer"
+                  SourceFile="Desktop.Instance.Installer.msi"
+                  />
+
+      <MsiPackage Id="Desktop.Integration.Installer"
+                  SourceFile="Desktop.Integration.Installer.msi"
+                  />
+
+      <MsiPackage Id="Desktop.InterfaceAPI.Installer"
+                  SourceFile="Desktop.InterfaceAPI.Installer.msi"
+                  />
+
+      <MsiPackage Id="Cmd.Installer"
+                  SourceFile="Desktop.Cmd.Installer.msi"
+                  />
+
+      <!-- MSI gerado pelo electron-builder em desktop-ui (copiado para bundle-payloads pelo new-release-winx64.ps1) -->
+      <MsiPackage Id="Desktop.UI.Installer"
+                  SourceFile="bundle-payloads\Desktop.UI.msi"
+                  />
+
+    </PackageGroup>
+  </Fragment>
+</Wix>

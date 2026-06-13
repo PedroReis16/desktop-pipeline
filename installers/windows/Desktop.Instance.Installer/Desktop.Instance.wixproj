@@ -1,0 +1,30 @@
+<Project Sdk="WixToolset.Sdk/6.0.2">
+  <PropertyGroup>
+    <PublishDir>..\..\..\workerservices\Desktop.Instance\bin\x64\$(Configuration)\net10.0\publish</PublishDir>
+  </PropertyGroup>
+  <PropertyGroup>
+    <HarvestDirectorySuppressCom>true</HarvestDirectorySuppressCom>
+    <HarvestDirectorySuppressRegistry>true</HarvestDirectorySuppressRegistry>
+    <HarvestDirectorySuppressSpecificWarnings>5151</HarvestDirectorySuppressSpecificWarnings>
+  </PropertyGroup>
+  <PropertyGroup>
+    <DefineConstants>Version=$(VersionNumber);PublishDir=$(PublishDir)</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\workerservices\Desktop.Instance\Desktop.Instance.csproj" />
+    <ProjectReference Include="..\Desktop.InstallerShared\Desktop.InstallerShared.wixproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.2" />
+    <PackageReference Include="WixToolset.Heat" Version="6.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <HarvestDirectory Include="$(PublishDir)">
+      <ComponentGroupName>PublishedComponents</ComponentGroupName>
+      <DirectoryRefId>SERVICEFOLDER</DirectoryRefId>
+      <SuppressRootDirectory>true</SuppressRootDirectory>
+      <PreprocessorVariable>var.PublishDir</PreprocessorVariable>
+      <Transforms>HarvestFilter.xslt</Transforms>
+    </HarvestDirectory>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+    xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+    xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+    <Bundle 
+        Version="$(VERSION)" 
+        UpgradeCode="d8116211-b8c1-47a8-8e30-7304ca30e3ea" 
+        Name="DesktopServices" 
+        Manufacturer="Vigia" 
+        HelpTelephone="+55 (11) 99999-9999"
+        AboutUrl="https://vigia.com.br" 
+        UpdateUrl="https://vigia.com.br" 
+        SplashScreenSourceFile="./Assets/splash.png" 
+        IconSourceFile="./Assets/app-icon.png">
+
+        <BootstrapperApplication>
+            <bal:WixStandardBootstrapperApplication 
+                Theme="hyperlinkSidebarLicense" 
+                LicenseUrl="" 
+                LogoFile="./Assets/app-icon.png" 
+                LogoSideFile="./Assets/side-image.png" 
+                ShowVersion="yes" 
+            />
+        </BootstrapperApplication>
+
+        <Chain>
+            <PackageGroupRef Id="DesktopServicesPackage"/>
+        </Chain>
+    </Bundle>
+</Wix>
