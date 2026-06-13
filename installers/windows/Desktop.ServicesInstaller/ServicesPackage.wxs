@@ -29,7 +29,7 @@
 
       <!-- MSI gerado pelo electron-builder em desktop-ui (copiado para bundle-payloads pelo new-release-winx64.ps1) -->
       <MsiPackage Id="Desktop.UI.Installer"
-                  SourceFile="bundle-payloads\Desktop.UI.msi"
+                  SourceFile="bundle-payloads\Desktop.Desktop.msi"
                   />
 
     </PackageGroup>

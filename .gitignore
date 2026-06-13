@@ -192,7 +192,7 @@ publish/
 *.azurePubxml
 # Note: Comment the next line if you want to checkin your web deploy settings,
 # but database connection strings (with potential passwords) will be unencrypted
-*.pubxml
+# *.pubxml
 *.publishproj
 
 # Microsoft Azure Web App publish settings. Comment the next line if you want to
@@ -529,7 +529,11 @@ __screenshots__/
 # Electron
 **/release/
 **/dist-electron/
+**/dist_electron/
 **/out/
+
+# WiX bundle payloads (MSI copiado pelo new-release-winx64.ps1)
+installers/windows/Desktop.ServicesInstaller/bundle-payloads/
 
 # System files
 .DS_Store
