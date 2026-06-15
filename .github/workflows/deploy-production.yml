@@ -1,5 +1,44 @@
 name: Deploy Production
 
+# ─────────────────────────────────────────────
+# LEMBRETE — BinSkim no projeto Go (desktop-cmd)
+# A CI (continuos-integration.yml) é só validação e NÃO publica artefato,
+# por isso o BinSkim do Go não entra lá. É AQUI (deploy) que o executável
+# final é gerado — então é AQUI que o BinSkim deve rodar sobre o binário Go.
+#
+# Estratégia de DOIS builds (decidida para o desktop-cmd):
+#   1) Build de VALIDAÇÃO (com símbolos) — só para o BinSkim analisar:
+#        go build -buildmode=pie -trimpath \
+#          -ldflags="-buildid=" \
+#          -o ./bin/desktop-cmd-binskim ./...
+#      → GDN_BINSKIM_TARGET aponta para esse binário.
+#
+#   2) Build de PRODUÇÃO (stripado) — o que de fato é distribuído:
+#        go build -buildmode=pie -trimpath \
+#          -ldflags="-s -w -buildid=" \
+#          -o ./bin/desktop-cmd ./...
+#
+# Por que dois builds: -s -w removem tabela de símbolos e DWARF, o que reduz
+# a cobertura de regras do BinSkim em ELF. O binário de validação mantém os
+# símbolos (análise completa) sem inflar o binário de produção.
+#
+# Step do BinSkim (após o build de validação):
+#   - name: Run Microsoft Security DevOps (BinSkim)
+#     uses: microsoft/security-devops-action@v1
+#     with:
+#       tools: binskim
+#       break-on-detections: 'true'
+#     env:
+#       GDN_BINSKIM_TARGET: desktop-cmd/bin/desktop-cmd-binskim
+#
+# Atenção:
+#   • A MSDO action é uma CLI .NET; se faltar runtime, adicionar
+#     actions/setup-dotnet@v4 antes do step.
+#   • Regras BAxxxx são voltadas a C/C++ (MSVC/GCC); em binários Go várias
+#     podem vir como notApplicable ou gerar ruído. Calibrar via .gdnconfig
+#     ou suppressões para o job não quebrar por regra inaplicável.
+# ─────────────────────────────────────────────
+
 on:
     workflow_dispatch:
         inputs:

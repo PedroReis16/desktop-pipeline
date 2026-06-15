@@ -378,6 +378,25 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: govulncheck ./...
 
+      - name: Go - build (security flags)
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          mkdir -p bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -buildid=" \
+            -o ./bin/${{ matrix.project.name }} \
+            ./...
+
+      - name: DAST - Run Microsoft Security DevOps (BinSkim)
+        uses: microsoft/security-devops-action@v1
+        with:
+          tools: binskim
+          break-on-detections: 'true'
+        env:
+          GDN_BINSKIM_TARGET: ${{ matrix.project.path }}/bin/${{ matrix.project.name }}
+
       - name: Go - tests with coverage
         working-directory: ${{ matrix.project.path }}
         run: |
