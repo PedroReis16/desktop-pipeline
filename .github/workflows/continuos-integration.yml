@@ -554,19 +554,17 @@ jobs:
 
           ROSLYNATOR=$(resolve_nuget_latest roslynator.dotnet.cli)
           SECURITY_SCAN=$(resolve_nuget_latest security-scan)
-          BINSKIM=$(resolve_nuget_latest microsoft.codeanalysis.binskim)
 
           {
             echo "roslynator=$ROSLYNATOR"
             echo "security_scan=$SECURITY_SCAN"
-            echo "binskim=$BINSKIM"
           } >> "$GITHUB_OUTPUT"
 
           # Coloca os global tools no PATH dos próximos passos, inclusive em
           # cache hit (quando o install é pulado).
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
-          echo "Versões resolvidas → roslynator=$ROSLYNATOR | security-scan=$SECURITY_SCAN | binskim=$BINSKIM"
+          echo "Versões resolvidas → roslynator=$ROSLYNATOR | security-scan=$SECURITY_SCAN"
 
       # Cache dos global tools, análogo ao cache de ~/go/bin do Go.
       - name: Cache .NET validation tools
@@ -574,7 +572,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet/tools
-          key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}-binskim${{ steps.dotnet_tools.outputs.binskim }}
+          key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}
 
       # Só instala em cache miss (saiu versão nova de alguma ferramenta).
       - name: Install .NET validation tools
@@ -583,7 +581,6 @@ jobs:
           set -euo pipefail
           dotnet tool install --global roslynator.dotnet.cli --version "${{ steps.dotnet_tools.outputs.roslynator }}"
           dotnet tool install --global security-scan --version "${{ steps.dotnet_tools.outputs.security_scan }}"
-          dotnet tool install --global Microsoft.CodeAnalysis.BinSkim --version "${{ steps.dotnet_tools.outputs.binskim }}"
 
       # ─── Checks ────────────────────────────────────────────────────
       # Formatação/estilo — análogo ao "Go - lint". Built-in do SDK.
@@ -626,38 +623,19 @@ jobs:
             exit 1
           fi
 
-      # ─── DAST — análise dos binários (BinSkim) ─────────────────────
-      # Camada de testes sobre os artefatos compilados: o BinSkim inspeciona os
-      # binários gerados (PE/.dll) em busca de configurações de compilação e
-      # hardening inseguras. Analisamos a(s) assembly(ies) do próprio projeto
-      # produzidas no passo de build.
-      - name: .NET - DAST (BinSkim binary analysis)
-        run: |
-          set -euo pipefail
-          shopt -s globstar nullglob
-
-          # Localiza a(s) assembly(ies) do próprio projeto na saída de build.
-          TARGETS=( "${{ matrix.project.path }}"/bin/**/"${{ matrix.project.name }}".dll )
-          if [[ "${#TARGETS[@]}" -eq 0 ]]; then
-            echo "::error::Nenhum binário de ${{ matrix.project.name }} encontrado para a análise do BinSkim."
-            exit 1
-          fi
-
-          SARIF="${{ matrix.project.path }}/binskim.sarif"
-
-          # O --rich-return-code devolve um bitfield que não cabe no exit code do
-          # shell; por isso não confiamos nele e inspecionamos o SARIF abaixo.
-          binskim analyze "${TARGETS[@]}" --output "$SARIF" --recurse true || true
-
-          # Em SARIF, um resultado sem "kind" é, por padrão, uma falha ("fail").
-          # O BinSkim marca checks aprovados/não aplicáveis como "pass"/"notApplicable".
-          FINDINGS=$(jq '[.runs[].results[]? | select((.kind // "fail") == "fail")] | length' "$SARIF")
-          echo "BinSkim findings: $FINDINGS"
-          if [[ "$FINDINGS" -gt 0 ]]; then
-            jq -r '.runs[].results[]? | select((.kind // "fail") == "fail") | "  • [\(.level // "warning")] \(.ruleId): \(.message.text)"' "$SARIF"
-            echo "::error::BinSkim encontrou problemas de hardening/segurança nos binários de ${{ matrix.project.name }}."
-            exit 1
-          fi
+      # ─── DAST — análise dos binários (BinSkim via MSDO) ────────────
+      # O BinSkim não é distribuído como dotnet tool; a action oficial do
+      # Microsoft Security DevOps instala e executa a versão correta. O alvo
+      # é restrito à assembly do próprio projeto para evitar ruído de DLLs
+      # de terceiros em runtimes/ e pastas nativas.
+      - name: Run Microsoft Security DevOps (BinSkim)
+        uses: microsoft/security-devops-action@v1
+        with:
+          tools: binskim
+          break-on-detections: 'true'
+        env:
+          GDN_BINSKIM_TARGET: ${{ matrix.project.path }}/bin/*/${{ matrix.project.name }}.dll
+          GDN_BINSKIM_RECURSE: 'true'
 
       # Testes unitários com cobertura — análogo ao "Go - tests with coverage".
       - name: .NET - tests with coverage
