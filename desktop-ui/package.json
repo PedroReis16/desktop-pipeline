@@ -8,6 +8,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "lint": "eslint .",
     "electron:serve": "concurrently -k -n NG,ELECTRON -c green,blue \"npm run start\" \"wait-on tcp:127.0.0.1:4200 && cross-env NODE_ENV=development electron .\"",
     "electron:start": "ng build --base-href ./ && electron .",
     "build:electron": "ng build --base-href ./",
@@ -34,7 +35,9 @@
       "warningsAsErrors": false,
       "oneClick": false,
       "perMachine": true,
-      "additionalLightArgs": ["-sval"]
+      "additionalLightArgs": [
+        "-sval"
+      ]
     },
     "mac": {
       "target": "dmg"
@@ -57,13 +60,18 @@
     "@angular/build": "^22.0.1",
     "@angular/cli": "^22.0.1",
     "@angular/compiler-cli": "^22.0.0",
+    "@eslint/js": "^10.0.1",
+    "angular-eslint": "^22.0.0",
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
     "electron": "^42.4.0",
     "electron-builder": "^26.15.3",
+    "eslint": "^10.5.0",
+    "eslint-plugin-security": "^4.0.1",
     "jsdom": "^28.0.0",
     "prettier": "^3.8.1",
     "typescript": "~6.0.2",
+    "typescript-eslint": "^8.61.0",
     "vitest": "^4.0.8",
     "wait-on": "^9.0.10"
   }

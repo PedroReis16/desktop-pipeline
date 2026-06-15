@@ -1,41 +1,477 @@
 name: Continuous Integration
 
 on:
-    pull_request:
-        branches:
-            - master
-            - develop
-        types:
-            - opened
-            - reopened
-            - synchronize
-            - ready_for_review
+  pull_request:
+    branches:
+      - master
+      - develop
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
 
 permissions:
-    contents: read
-    pull-requests: read
+  contents: read
+  pull-requests: read
 
 jobs:
-    # ─────────────────────────────────────────────
-    # 1. DETECÇÃO DE MUDANÇAS
-    # Constrói uma matriz dinâmica com apenas os projetos
-    # que tiveram arquivos alterados nesta PR.
-    # ─────────────────────────────────────────────
-    detect-changes:
-        name: Detect changed projects
-        runs-on: ubuntu-latest
-        outputs:
-            projects_matrix: ${{ steps.compute_matrix.outputs.projects_matrix }}
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                fetch-depth: 0
+  # ─────────────────────────────────────────────
+  # 1. DETECÇÃO DE MUDANÇAS
+  # Constrói uma matriz dinâmica com apenas os projetos
+  # que tiveram arquivos alterados nesta PR.
+  # ─────────────────────────────────────────────
+  detect-changes:
+    name: Detect changed projects
+    runs-on: ubuntu-latest
+    outputs:
+      go_matrix: ${{ steps.compute_matrix.outputs.go_matrix }}
+      node_matrix: ${{ steps.compute_matrix.outputs.node_matrix }}
+      dotnet_matrix: ${{ steps.compute_matrix.outputs.dotnet_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - name: Detect changed paths
-              id: filter
-              uses: dorny/paths-filter@v3
-              with:
-                token: ${{github.token}}
-                predicate-quantifier: every
-                filters: |
-                
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{github.token}}
+          filters: |
+            desktop_ui:
+              - 'desktop-ui/**'
+              - '!desktop-ui/**/*.md'
+            desktop_cmd:
+              - 'desktop-cmd/**'
+              - '!desktop-cmd/**/*.md'
+            # Serviços .NET: cada um casado com o próprio código e o próprio
+            # projeto de testes UNITÁRIOS. Os testes de integração ficam de
+            # fora da CI (reservados para as pipelines de deploy).
+            ws_export:
+              - 'workerservices/Desktop.Export/**'
+              - 'workerservices/Tests/Unit/Desktop.Export.UnitTests/**'
+            ws_import:
+              - 'workerservices/Desktop.Import/**'
+              - 'workerservices/Tests/Unit/Desktop.Import.UnitTests/**'
+            ws_instance:
+              - 'workerservices/Desktop.Instance/**'
+              - 'workerservices/Tests/Unit/Desktop.Instance.UnitTests/**'
+            ws_integration:
+              - 'workerservices/Desktop.Integration/**'
+              - 'workerservices/Tests/Unit/Desktop.Integration.UnitTests/**'
+            ws_interface_api:
+              - 'workerservices/Desktop.InterfaceAPI/**'
+              - 'workerservices/Tests/Unit/Desktop.InterfaceAPI.UnitTests/**'
+            # Bibliotecas compartilhadas: também tratadas individualmente, para
+            # que uma mudança rode apenas os testes unitários da própria lib.
+            ws_database:
+              - 'workerservices/Libraries/Desktop.Database/**'
+              - 'workerservices/Tests/Unit/Desktop.Database.UnitTests/**'
+            ws_models:
+              - 'workerservices/Libraries/Desktop.Models/**'
+              - 'workerservices/Tests/Unit/Desktop.Models.UnitTests/**'
+
+      - name: Build projects matrix
+        id: compute_matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECTS='[]'
+
+          # Frontend Angular + Electron
+          if [[ "${{ steps.filter.outputs.desktop_ui }}" == "true" ]]; then
+            PROJECTS=$(jq -c '. + [{
+              "name": "desktop-ui",
+              "type": "node",
+              "path": "desktop-ui"
+            }]' <<< "$PROJECTS")
+          fi
+
+          # CLI em Go
+          if [[ "${{ steps.filter.outputs.desktop_cmd }}" == "true" ]]; then
+            PROJECTS=$(jq -c '. + [{
+              "name": "desktop-cmd",
+              "type": "go",
+              "path": "desktop-cmd",
+              "go_mod": "desktop-cmd/go.mod",
+              "go_sum": "desktop-cmd/go.sum"
+            }]' <<< "$PROJECTS")
+          fi
+
+          # Projetos .NET (serviços e bibliotecas) tratados de forma
+          # independente: cada um entra na matriz só quando o próprio código
+          # ou seu projeto de testes unitários muda, e carrega o caminho do
+          # respectivo projeto de testes UNITÁRIOS em "unit_tests". A CI roda
+          # apenas esses testes; integração fica para o deploy.
+          add_dotnet() {
+            local name="$1"     # nome do projeto
+            local path="$2"     # caminho do projeto
+            local unit="$3"     # caminho do projeto de testes unitários
+            local changed="$4"  # flag do filtro de mudanças
+            if [[ "$changed" == "true" ]]; then
+              PROJECTS=$(jq -c --arg n "$name" --arg p "$path" --arg u "$unit" '. + [{
+                "name":       $n,
+                "type":       "dotnet",
+                "path":       $p,
+                "unit_tests": $u
+              }]' <<< "$PROJECTS")
+            fi
+          }
+
+          # Serviços
+          add_dotnet "Desktop.Export"       "workerservices/Desktop.Export"       "workerservices/Tests/Unit/Desktop.Export.UnitTests"       "${{ steps.filter.outputs.ws_export }}"
+          add_dotnet "Desktop.Import"       "workerservices/Desktop.Import"       "workerservices/Tests/Unit/Desktop.Import.UnitTests"       "${{ steps.filter.outputs.ws_import }}"
+          add_dotnet "Desktop.Instance"     "workerservices/Desktop.Instance"     "workerservices/Tests/Unit/Desktop.Instance.UnitTests"     "${{ steps.filter.outputs.ws_instance }}"
+          add_dotnet "Desktop.Integration"  "workerservices/Desktop.Integration"  "workerservices/Tests/Unit/Desktop.Integration.UnitTests"  "${{ steps.filter.outputs.ws_integration }}"
+          add_dotnet "Desktop.InterfaceAPI" "workerservices/Desktop.InterfaceAPI" "workerservices/Tests/Unit/Desktop.InterfaceAPI.UnitTests" "${{ steps.filter.outputs.ws_interface_api }}"
+
+          # Bibliotecas
+          add_dotnet "Desktop.Database"     "workerservices/Libraries/Desktop.Database" "workerservices/Tests/Unit/Desktop.Database.UnitTests" "${{ steps.filter.outputs.ws_database }}"
+          add_dotnet "Desktop.Models"       "workerservices/Libraries/Desktop.Models"   "workerservices/Tests/Unit/Desktop.Models.UnitTests"   "${{ steps.filter.outputs.ws_models }}"
+
+          # Quebra a lista única em uma matriz por linguagem. Cada job de
+          # qualidade consome a sua e só roda se a respectiva matriz não for
+          # vazia — sem precisar de condicionais por step.
+          GO_MATRIX=$(jq -c '[.[] | select(.type == "go")]' <<< "$PROJECTS")
+          NODE_MATRIX=$(jq -c '[.[] | select(.type == "node")]' <<< "$PROJECTS")
+          DOTNET_MATRIX=$(jq -c '[.[] | select(.type == "dotnet")]' <<< "$PROJECTS")
+
+          {
+            echo "go_matrix=$GO_MATRIX"
+            echo "node_matrix=$NODE_MATRIX"
+            echo "dotnet_matrix=$DOTNET_MATRIX"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Go:    $GO_MATRIX"
+          echo "Node:  $NODE_MATRIX"
+          echo ".NET:  $DOTNET_MATRIX"
+
+  # ─────────────────────────────────────────────
+  # 2. SCAN DE SEGREDOS
+  # Roda sempre, independente de quais projetos
+  # foram alterados — segredos podem aparecer em
+  # qualquer arquivo do repositório.
+  # ─────────────────────────────────────────────
+  secrets_scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────
+  # 3. VALIDAÇÃO DE AUTORIA DE COMMITS
+  # Bloqueia PRs cujos commits possuam qualquer
+  # referência a agentes de IA (Cursor, Claude,
+  # Copilot, Codex, ChatGPT, Gemini, etc.)
+  # ─────────────────────────────────────────────
+  commit_authors_check:
+    name: Commit authors validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate commits for AI agent attribution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # Coleta APENAS os commits que pertencem a esta PR, direto da API do
+          # GitHub (endpoint pulls/{n}/commits). Assim não dependemos do
+          # histórico completo do repositório (fetch-depth) nem de ranges git
+          # que poderiam alcançar commits antigos em repositórios grandes.
+          # Cada commit é serializado em base64 (uma linha por commit) para
+          # preservar mensagens com múltiplas linhas.
+          COMMITS=$(gh api --paginate \
+            "repos/${REPO}/pulls/${PR_NUMBER}/commits" \
+            --jq '.[] | @base64' || true)
+
+          if [[ -z "$COMMITS" ]]; then
+            echo "Nenhum commit encontrado na PR — nada para validar."
+            exit 0
+          fi
+
+          # Trailers/frases que atribuem a autoria (parcial ou total) a um agente.
+          # Casados de forma case-insensitive contra a mensagem completa do commit.
+          TRAILER_PATTERN='(co[- ]?author(ed)?[- ]?by|made[- ]?with|generated[- ]?(with|by)|assisted[- ]?by|thrilled[- ]?by|crafted[- ]?with|written[- ]?with|powered[- ]?by|authored[- ]?by|created[- ]?by|built[- ]?with).{0,80}(claude|cursor|copilot|chatgpt|openai|anthropic|codex|gemini|google[- ]?bard|\bbard\b|devin|aider|continue\.dev|sweep[- ]?ai|tabnine|amazon[- ]?q|codewhisperer|llm|\bai\b|agent)'
+
+          # Identidades de bots/agentes em nome ou e-mail do author/committer.
+          IDENTITY_PATTERN='(claude|cursor|copilot|chatgpt|openai|anthropic|codex|gemini|devin|aider|sweep[- ]?ai|tabnine|codewhisperer|\[bot\]|noreply@anthropic|@cursor\.(com|sh|so|ai)|@openai\.com|@anthropic\.com)'
+
+          ROBOT_EMOJI=$'\xF0\x9F\xA4\x96'  # 🤖
+
+          FAIL=0
+          OFFENDING=""
+
+          while IFS= read -r ROW; do
+            [[ -z "$ROW" ]] && continue
+
+            JSON=$(printf '%s' "$ROW" | base64 -d)
+            SHA=$(jq -r '.sha' <<< "$JSON")
+            MSG=$(jq -r '.commit.message' <<< "$JSON")
+            AUTHOR=$(jq -r '"\(.commit.author.name) <\(.commit.author.email)>"' <<< "$JSON")
+            COMMITTER=$(jq -r '"\(.commit.committer.name) <\(.commit.committer.email)>"' <<< "$JSON")
+            IDENTITY="${AUTHOR}"$'\n'"${COMMITTER}"
+
+            REASONS=""
+
+            if grep -qiE "$TRAILER_PATTERN" <<< "$MSG"; then
+              REASONS+=$'    • Trailer/atribuição a agente de IA na mensagem.\n'
+            fi
+
+            if grep -qiE "$IDENTITY_PATTERN" <<< "$IDENTITY"; then
+              REASONS+=$'    • Author/committer com identidade de agente/bot de IA.\n'
+            fi
+
+            if grep -qF "$ROBOT_EMOJI" <<< "$MSG"; then
+              REASONS+=$'    • Emoji 🤖 (assinatura típica de commits gerados por IA).\n'
+            fi
+
+            if [[ -n "$REASONS" ]]; then
+              FAIL=1
+              OFFENDING+=$'\n  ✖ Commit '"$SHA"$'\n'
+              OFFENDING+=$'      Author:    '"$AUTHOR"$'\n'
+              OFFENDING+=$'      Committer: '"$COMMITTER"$'\n'
+              OFFENDING+="$REASONS"
+            fi
+          done <<< "$COMMITS"
+
+          if [[ "$FAIL" -eq 1 ]]; then
+            {
+              echo "::error::Commits com referência a agentes de IA detectados nesta PR."
+              echo
+              echo "Os commits desta PR devem ter apenas autores humanos."
+              echo "Não são permitidas referências a Cursor, Claude, Copilot, Codex,"
+              echo "ChatGPT, Gemini ou qualquer outro agente — seja como co-autor,"
+              echo "trailer (Co-authored-by, Made-with, Generated-with, Assisted-by,"
+              echo "Thrilled-by, ...), identidade de author/committer ou emoji 🤖."
+              echo
+              echo "Commits inválidos:"
+              printf '%s' "$OFFENDING"
+              echo
+              echo "Como corrigir:"
+              echo "  1. Reescreva os commits afetados (git rebase -i / git commit --amend)."
+              echo "  2. Remova trailers de co-autoria e qualquer linha que mencione o agente."
+              echo "  3. Faça force-push da branch da PR."
+            } >&2
+            exit 1
+          fi
+
+          echo "Nenhum commit com referência a agente de IA encontrado."
+
+  # ─────────────────────────────────────────────
+  # 4. QUALIDADE — GO
+  # Um job por linguagem. A matriz vem só com os projetos Go; se estiver
+  # vazia, o job inteiro é pulado. Sem condicionais por step.
+  # ─────────────────────────────────────────────
+  quality_go:
+    name: "Go · ${{ matrix.project.name }}"
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.go_matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.detect-changes.outputs.go_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        id: setup_go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.project.go_mod }}
+          cache-dependency-path: ${{ matrix.project.path }}/go.sum
+
+      - name: Resolve latest security tool versions
+        id: tool_versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Última release estável (não draft/pre-release) de um repo GitHub.
+          resolve_gh_latest() {  # $1 = owner/repo
+            local tag
+            tag=$(gh release view --repo "$1" --json tagName --jq '.tagName')
+            if [[ -z "$tag" ]]; then
+              echo "::error::Não foi possível resolver a última versão de $1." >&2
+              exit 1
+            fi
+            printf '%s' "$tag"
+          }
+
+          GOLANGCI=$(resolve_gh_latest golangci/golangci-lint)
+          GOSEC=$(resolve_gh_latest securego/gosec)
+
+          # govulncheck é módulo Go: a versão mais recente vem do proxy oficial.
+          GOVULNCHECK=$(curl -fsSL https://proxy.golang.org/golang.org/x/vuln/@latest | jq -r '.Version')
+          if [[ -z "$GOVULNCHECK" || "$GOVULNCHECK" == "null" ]]; then
+            echo "::error::Não foi possível resolver a última versão do govulncheck." >&2
+            exit 1
+          fi
+
+          {
+            echo "golangci=$GOLANGCI"
+            echo "gosec=$GOSEC"
+            echo "govulncheck=$GOVULNCHECK"
+          } >> "$GITHUB_OUTPUT"
+
+          # Garante que os binários instalados em GOPATH/bin fiquem no PATH
+          # dos próximos passos, mesmo em caso de cache hit (sem reinstalar).
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+          echo "Versões resolvidas → golangci-lint=$GOLANGCI | gosec=$GOSEC | govulncheck=$GOVULNCHECK"
+
+      - name: Cache Go security tools
+        id: cache_go_tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-sec-tools-${{ runner.os }}-go${{ steps.setup_go.outputs.go-version }}-gosec${{ steps.tool_versions.outputs.gosec }}-govulncheck${{ steps.tool_versions.outputs.govulncheck }}-golangci${{ steps.tool_versions.outputs.golangci }}
+
+      # Só instala quando a chave acima deu cache miss (ou seja, quando há uma
+      # versão nova de alguma ferramenta). Em cache hit, este passo é pulado.
+      - name: Install Go security tools
+        if: steps.cache_go_tools.outputs.cache-hit != 'true'
+        env:
+          GOLANGCI_LINT_VERSION: ${{ steps.tool_versions.outputs.golangci }}
+          GOSEC_VERSION: ${{ steps.tool_versions.outputs.gosec }}
+          GOVULNCHECK_VERSION: ${{ steps.tool_versions.outputs.govulncheck }}
+        run: |
+          set -euo pipefail
+          BIN="$(go env GOPATH)/bin"
+
+          # gosec e golangci-lint via script oficial de instalação: ele baixa
+          # o binário correto mesmo quando o caminho do módulo muda entre
+          # versões major (ex.: golangci-lint v1 → v2).
+          curl -sSfL https://raw.githubusercontent.com/securego/gosec/master/install.sh \
+            | sh -s -- -b "$BIN" "$GOSEC_VERSION"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$BIN" "$GOLANGCI_LINT_VERSION"
+
+          # govulncheck tem caminho de módulo estável.
+          go install golang.org/x/vuln/cmd/govulncheck@"$GOVULNCHECK_VERSION"
+
+      - name: Go - lint
+        working-directory: ${{ matrix.project.path }}
+        run: golangci-lint run --timeout=5m
+
+      - name: Go - SAST
+        working-directory: ${{ matrix.project.path }}
+        run: gosec ./...
+
+      - name: Go - Dependencies vulnerabilities
+        working-directory: ${{ matrix.project.path }}
+        run: govulncheck ./...
+
+      - name: Go - tests with coverage
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          go test ./... \
+            -race \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            -timeout=120s
+
+      - name: Go - coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.project.name }}
+          path: ${{ matrix.project.path }}/coverage.out
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # 4. QUALIDADE — NODE / ANGULAR
+  # ─────────────────────────────────────────────
+  quality_node:
+    name: "Node · ${{ matrix.project.name }}"
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.node_matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.detect-changes.outputs.node_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # node-version: lts/* mantém o runtime sempre no último Node LTS.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: ${{ matrix.project.path }}/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: ${{ matrix.project.path }}
+        run: npm ci
+
+      - name: Node - format check
+        working-directory: ${{ matrix.project.path }}
+        run: npx prettier --check .
+
+      - name: Node - SAST
+        working-directory: ${{ matrix.project.path }}
+        run: npm run lint
+
+      - name: Node - build
+        working-directory: ${{ matrix.project.path }}
+        run: npm run build
+
+      - name: Node - dependency vulnerabilities
+        working-directory: ${{ matrix.project.path }}
+        run: npm audit --audit-level=high
+
+      - name: Node - tests with coverage
+        working-directory: ${{ matrix.project.path }}
+        run: npm test -- --no-watch --coverage
+
+      - name: Node - coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.project.name }}
+          path: ${{ matrix.project.path }}/coverage/
+          retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # 4. QUALIDADE — C# / .NET
+  # ─────────────────────────────────────────────
+  quality_dotnet:
+    name: ".NET · ${{ matrix.project.name }}"
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dotnet_matrix != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.detect-changes.outputs.dotnet_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # dotnet-version: 10.0.x flutua no último patch do .NET 10.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles(format('{0}/**/*.csproj', matrix.project.path)) }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore .NET dependencies
+        run: dotnet restore "${{ matrix.project.path }}"
