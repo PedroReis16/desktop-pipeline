@@ -530,7 +530,7 @@ jobs:
             -p:NuGetAudit=true \
             -p:NuGetAuditMode=all \
             -p:NuGetAuditLevel=low \
-            -warnaserror:NU1901;NU1902;NU1903;NU1904
+            -warnaserror:NU1901%3BNU1902%3BNU1903%3BNU1904
 
       # Resolve a última versão estável (NuGet) das ferramentas de validação
       # externas, como o "Resolve latest security tool versions" do Go. As
@@ -601,7 +601,7 @@ jobs:
             -p:AnalysisLevel=latest \
             -p:EnforceCodeStyleInBuild=true \
             -warnaserror \
-            -p:WarningsNotAsErrors=NU1901;NU1902;NU1903;NU1904
+            -p:WarningsNotAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
 
       # Lint/análise Roslyn — análogo ao "Go - lint" (golangci-lint).
       - name: .NET - lint (Roslynator)
