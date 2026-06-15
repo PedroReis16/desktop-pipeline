@@ -498,6 +498,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
+    # Global tools (ex.: security-scan) podem publicar para runtimes antigos.
+    # Roll-forward permite executá-los no runtime mais novo disponível quando
+    # o TFM exato não estiver instalado.
+    env:
+      DOTNET_ROLL_FORWARD: LatestMajor
     strategy:
       fail-fast: false
       matrix:
@@ -505,11 +510,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # dotnet-version: 10.0.x flutua no último patch do .NET 10.
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -583,16 +588,10 @@ jobs:
           dotnet tool install --global security-scan --version "${{ steps.dotnet_tools.outputs.security_scan }}"
 
       # ─── Checks ────────────────────────────────────────────────────
-      # Formatação/estilo — análogo ao "Go - lint". Built-in do SDK.
+      
       - name: .NET - format check
         run: dotnet format "${{ matrix.project.path }}" --verify-no-changes --no-restore
 
-      # Build com os Roslyn Analyzers (Microsoft.CodeAnalysis.NetAnalyzers)
-      # habilitados em modo completo. As advertências dos analisadores (CAxxxx)
-      # e do compilador são promovidas a erro, de modo que a análise estática
-      # nativa do .NET efetivamente bloqueie a CI. As advertências de
-      # vulnerabilidade do NuGet Audit (NU1901–NU1904) já são tratadas no passo
-      # de restore e ficam de fora deste warn-as-error.
       - name: .NET - build (Roslyn Analyzers)
         run: |
           dotnet build "${{ matrix.project.path }}" --no-restore \
@@ -603,16 +602,12 @@ jobs:
             -warnaserror \
             -p:WarningsNotAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
 
-      # Lint/análise Roslyn — análogo ao "Go - lint" (golangci-lint).
       - name: .NET - lint (Roslynator)
         run: roslynator analyze "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
 
-      # SAST — análogo ao "Go - SAST" (gosec).
       - name: .NET - SAST (Security Code Scan)
         run: security-scan "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
 
-      # Vulnerabilidades de dependências — análogo ao "Go - Dependencies
-      # vulnerabilities" (govulncheck). Built-in do SDK, base NuGet sempre atual.
       - name: .NET - dependency vulnerabilities
         run: |
           set -euo pipefail
@@ -623,11 +618,6 @@ jobs:
             exit 1
           fi
 
-      # ─── DAST — análise dos binários (BinSkim via MSDO) ────────────
-      # O BinSkim não é distribuído como dotnet tool; a action oficial do
-      # Microsoft Security DevOps instala e executa a versão correta. O alvo
-      # é restrito à assembly do próprio projeto para evitar ruído de DLLs
-      # de terceiros em runtimes/ e pastas nativas.
       - name: Run Microsoft Security DevOps (BinSkim)
         uses: microsoft/security-devops-action@v1
         with:
