@@ -633,12 +633,13 @@ jobs:
     steps:
       - name: Check all results
         run: |
-          SECRETS="${{needs.secrets_scan.result}}"
-          AUTHORS="${{needs.commit_authors_check.result}}"
-          GO="${{needs.quality_go.result}}"
-          NODE="${{needs.quality_node.result}}"
-          DOTNET="${{needs.quality_dotnet.result}}"
-
+          # Gate apenas considera jobs "executados/required".
+          # "skipped" significa que não havia nada a testar/verificar naquele job.
+          SECRETS="${{ needs.secrets_scan.result }}"
+          AUTHORS="${{ needs.commit_authors_check.result }}"
+          GO="${{ needs.quality_go.result }}"
+          NODE="${{ needs.quality_node.result }}"
+          DOTNET="${{ needs.quality_dotnet.result }}"
 
           echo "secrets_scan:         $SECRETS"
           echo "commit_authors_check: $AUTHORS"
@@ -646,8 +647,36 @@ jobs:
           echo "quality_node:         $NODE"
           echo "quality_dotnet:       $DOTNET"
 
-          if [["$SECRETS" == "failure"]] || [["$AUTHORS" == "failure"]] || [["$GO" == "failure"]] || [["$NODE" == "failure"]] || [["$DOTNET" == "failure"]]; then
-            echo "::error::Um ou mais jobs falharam"
+          FAIL=0
+
+          # Todos os jobs obrigatórios (rodam sempre)
+          if [[ "$SECRETS" != "success" ]]; then
+            echo "::error::Secrets scan falhou ou não completou com sucesso."
+            FAIL=1
+          fi
+
+          if [[ "$AUTHORS" != "success" ]]; then
+            echo "::error::Commit authors check falhou ou não completou com sucesso."
+            FAIL=1
+          fi
+
+          # Jobs condicionais: só falha se rodaram E falharam.
+          # Se for skipped, não é obrigatório para esta PR.
+          if [[ "$GO" != "skipped" && "$GO" != "success" ]]; then
+            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            FAIL=1
+          fi
+          if [[ "$NODE" != "skipped" && "$NODE" != "success" ]]; then
+            echo "::error::A validação qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            FAIL=1
+          fi
+          if [[ "$DOTNET" != "skipped" && "$DOTNET" != "success" ]]; then
+            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            FAIL=1
+          fi
+
+          if [[ "$FAIL" -ne 0 ]]; then
+            echo "::error::Um ou mais jobs obrigatórios falharam."
             exit 1
           fi
 
