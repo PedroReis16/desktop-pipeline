@@ -1,5 +1,7 @@
 name: Continuous Integration
 
+run-name: '${{ github.event.pull_request.title }} - #${{ github.event.pull_request.number }}'
+
 on:
   pull_request:
     branches:
@@ -156,6 +158,7 @@ jobs:
   secrets_scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    needs: detect-changes
     steps:
       - uses: actions/checkout@v4
         with:
@@ -174,6 +177,7 @@ jobs:
   # ─────────────────────────────────────────────
   commit_authors_check:
     name: Commit authors validation
+    needs: detect-changes
     runs-on: ubuntu-latest
     steps:
       - name: Validate commits for AI agent attribution
@@ -276,7 +280,7 @@ jobs:
   quality_go:
     name: "Go · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
     strategy:
       fail-fast: false
@@ -289,7 +293,7 @@ jobs:
         id: setup_go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.project.go_mod }}
+          go-version-file: ${{ matrix.project.go_mod }}
           cache-dependency-path: ${{ matrix.project.path }}/go.sum
 
       - name: Resolve latest security tool versions
@@ -374,6 +378,26 @@ jobs:
         working-directory: ${{ matrix.project.path }}
         run: govulncheck ./...
 
+      - name: Go - build (security flags)
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          set -euo pipefail
+          mkdir -p bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -ldflags="-buildid=" \
+            -o "./bin/${{ matrix.project.name }}" \
+            ./...
+
+      - name: DAST - Run Microsoft Security DevOps (BinSkim)
+        uses: microsoft/security-devops-action@v1
+        with:
+          tools: binskim
+          break-on-detections: 'true'
+        env:
+          GDN_BINSKIM_TARGET: ${{ matrix.project.path }}/bin/${{ matrix.project.name }}
+
       - name: Go - tests with coverage
         working-directory: ${{ matrix.project.path }}
         run: |
@@ -396,7 +420,7 @@ jobs:
   quality_node:
     name: "Node · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
     strategy:
       fail-fast: false
@@ -492,8 +516,13 @@ jobs:
   quality_dotnet:
     name: ".NET · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
+    # Global tools (ex.: security-scan) podem publicar para runtimes antigos.
+    # Roll-forward permite executá-los no runtime mais novo disponível quando
+    # o TFM exato não estiver instalado.
+    env:
+      DOTNET_ROLL_FORWARD: LatestMajor
     strategy:
       fail-fast: false
       matrix:
@@ -501,11 +530,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # dotnet-version: 10.0.x flutua no último patch do .NET 10.
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -515,8 +544,18 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Restore .NET dependencies
-        run: dotnet restore "${{ matrix.project.path }}"
+      # Restauração com NuGet Audit habilitado: os próprios analisadores do
+      # .NET avaliam os pacotes (diretos e transitivos) contra a base de
+      # advisories da NuGet durante o restore — análogo ao "govulncheck" do Go,
+      # mas built-in do SDK. As advertências de vulnerabilidade (NU1901–NU1904)
+      # são promovidas a erro para que dependências vulneráveis falhem a CI.
+      - name: Restore .NET dependencies (NuGet Audit)
+        run: |
+          dotnet restore "${{ matrix.project.path }}" \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            -p:NuGetAuditLevel=low \
+            -warnaserror:NU1901%3BNU1902%3BNU1903%3BNU1904
 
       # Resolve a última versão estável (NuGet) das ferramentas de validação
       # externas, como o "Resolve latest security tool versions" do Go. As
@@ -569,23 +608,26 @@ jobs:
           dotnet tool install --global security-scan --version "${{ steps.dotnet_tools.outputs.security_scan }}"
 
       # ─── Checks ────────────────────────────────────────────────────
-      # Formatação/estilo — análogo ao "Go - lint". Built-in do SDK.
+      
       - name: .NET - format check
         run: dotnet format "${{ matrix.project.path }}" --verify-no-changes --no-restore
 
-      - name: .NET - build
-        run: dotnet build "${{ matrix.project.path }}" --no-restore
+      - name: .NET - build (Roslyn Analyzers)
+        run: |
+          dotnet build "${{ matrix.project.path }}" --no-restore \
+            -p:EnableNETAnalyzers=true \
+            -p:AnalysisMode=All \
+            -p:AnalysisLevel=latest \
+            -p:EnforceCodeStyleInBuild=true \
+            -warnaserror \
+            -p:WarningsNotAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
 
-      # Lint/análise Roslyn — análogo ao "Go - lint" (golangci-lint).
       - name: .NET - lint (Roslynator)
         run: roslynator analyze "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
 
-      # SAST — análogo ao "Go - SAST" (gosec).
       - name: .NET - SAST (Security Code Scan)
         run: security-scan "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
 
-      # Vulnerabilidades de dependências — análogo ao "Go - Dependencies
-      # vulnerabilities" (govulncheck). Built-in do SDK, base NuGet sempre atual.
       - name: .NET - dependency vulnerabilities
         run: |
           set -euo pipefail
@@ -595,6 +637,36 @@ jobs:
             echo "::error::Pacotes vulneráveis encontrados em ${{ matrix.project.name }}."
             exit 1
           fi
+
+      # ─── DAST — análise dos binários (BinSkim via MSDO) ────────────
+      # A saída do build fica em bin/<Configuration>/<TargetFramework>/.
+      # O glob bin/*/Assembly.dll não alcança esse nível; resolvemos o caminho
+      # exato antes de invocar o MSDO para evitar NoGlobResultsFoundException.
+      - name: Resolve BinSkim target
+        id: binskim_target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            find "${{ matrix.project.path }}/bin" -type f -name "${{ matrix.project.name }}.dll" \
+              ! -path '*/publish/*' ! -path '*/ref/*' | sort
+          )
+          if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+            echo "::error::Assembly ${{ matrix.project.name }}.dll não encontrada em ${{ matrix.project.path }}/bin"
+            find "${{ matrix.project.path }}/bin" -type f 2>/dev/null | head -30 || true
+            exit 1
+          fi
+          TARGET="${TARGETS[0]}"
+          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "BinSkim target: $TARGET"
+
+      - name: Run Microsoft Security DevOps (BinSkim)
+        uses: microsoft/security-devops-action@v1
+        with:
+          tools: binskim
+          break-on-detections: 'true'
+        env:
+          GDN_BINSKIM_TARGET: ${{ steps.binskim_target.outputs.path }}
 
       # Testes unitários com cobertura — análogo ao "Go - tests with coverage".
       - name: .NET - tests with coverage
@@ -607,3 +679,73 @@ jobs:
           path: ${{ matrix.project.unit_tests }}/TestResults/**/coverage.cobertura.xml
           if-no-files-found: ignore
           retention-days: 7
+
+  # ─────────────────────────────────────────────
+  # 5. CI GATE
+  # Job único que consolida o resultado de todos
+  # os outros. Configure APENAS este job como
+  # "required status check" no branch protection.
+  # ─────────────────────────────────────────────
+  ci_gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs:
+      [
+        secrets_scan,
+        commit_authors_check,
+        quality_go,
+        quality_node,
+        quality_dotnet,
+      ]
+    if: always()
+    steps:
+      - name: Check all results
+        run: |
+          # Gate apenas considera jobs "executados/required".
+          # "skipped" significa que não havia nada a testar/verificar naquele job.
+          SECRETS="${{ needs.secrets_scan.result }}"
+          AUTHORS="${{ needs.commit_authors_check.result }}"
+          GO="${{ needs.quality_go.result }}"
+          NODE="${{ needs.quality_node.result }}"
+          DOTNET="${{ needs.quality_dotnet.result }}"
+
+          echo "secrets_scan:         $SECRETS"
+          echo "commit_authors_check: $AUTHORS"
+          echo "quality_go:           $GO"
+          echo "quality_node:         $NODE"
+          echo "quality_dotnet:       $DOTNET"
+
+          FAIL=0
+
+          # Todos os jobs obrigatórios (rodam sempre)
+          if [[ "$SECRETS" != "success" ]]; then
+            echo "::error::Secrets scan falhou ou não completou com sucesso."
+            FAIL=1
+          fi
+
+          if [[ "$AUTHORS" != "success" ]]; then
+            echo "::error::Commit authors check falhou ou não completou com sucesso."
+            FAIL=1
+          fi
+
+          # Jobs condicionais: só falha se rodaram E falharam.
+          # Se for skipped, não é obrigatório para esta PR.
+          if [[ "$GO" != "skipped" && "$GO" != "success" ]]; then
+            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            FAIL=1
+          fi
+          if [[ "$NODE" != "skipped" && "$NODE" != "success" ]]; then
+            echo "::error::A validação qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            FAIL=1
+          fi
+          if [[ "$DOTNET" != "skipped" && "$DOTNET" != "success" ]]; then
+            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            FAIL=1
+          fi
+
+          if [[ "$FAIL" -ne 0 ]]; then
+            echo "::error::Um ou mais jobs obrigatórios falharam."
+            exit 1
+          fi
+
+          echo "CI concluído com sucesso"

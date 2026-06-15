@@ -16,6 +16,11 @@
   },
   "private": true,
   "packageManager": "npm@11.17.0",
+  "overrides": {
+    "esbuild": "^0.28.1",
+    "@babel/core": "^7.29.6",
+    "vite": "^7.3.5"
+  },
   "build": {
     "appId": "com.desktoppipeline.desktop-ui",
     "productName": "DesktopUI",
@@ -61,6 +66,7 @@
     "@angular/cli": "^22.0.1",
     "@angular/compiler-cli": "^22.0.0",
     "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "angular-eslint": "^22.0.0",
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",

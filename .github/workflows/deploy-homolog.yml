@@ -1,15 +1,81 @@
 name: Deploy Homolog
 
+# ─────────────────────────────────────────────
+# LEMBRETE — BinSkim no projeto Go (desktop-cmd)
+# A CI (continuos-integration.yml) é só validação e NÃO publica artefato,
+# por isso o BinSkim do Go não entra lá. É AQUI (deploy) que o executável
+# final é gerado — então é AQUI que o BinSkim deve rodar sobre o binário Go.
+#
+# Estratégia de DOIS builds (decidida para o desktop-cmd):
+#   1) Build de VALIDAÇÃO (com símbolos) — só para o BinSkim analisar:
+#        go build -buildmode=pie -trimpath \
+#          -ldflags="-buildid=" \
+#          -o ./bin/desktop-cmd-binskim ./...
+#      → GDN_BINSKIM_TARGET aponta para esse binário.
+#
+#   2) Build de PRODUÇÃO (stripado) — o que de fato é distribuído:
+#        go build -buildmode=pie -trimpath \
+#          -ldflags="-s -w -buildid=" \
+#          -o ./bin/desktop-cmd ./...
+#
+# Por que dois builds: -s -w removem tabela de símbolos e DWARF, o que reduz
+# a cobertura de regras do BinSkim em ELF. O binário de validação mantém os
+# símbolos (análise completa) sem inflar o binário de produção.
+#
+# Step do BinSkim (após o build de validação):
+#   - name: Run Microsoft Security DevOps (BinSkim)
+#     uses: microsoft/security-devops-action@v1
+#     with:
+#       tools: binskim
+#       break-on-detections: 'true'
+#     env:
+#       GDN_BINSKIM_TARGET: desktop-cmd/bin/desktop-cmd-binskim
+#
+# Atenção:
+#   • A MSDO action é uma CLI .NET; se faltar runtime, adicionar
+#     actions/setup-dotnet@v4 antes do step.
+#   • Regras BAxxxx são voltadas a C/C++ (MSVC/GCC); em binários Go várias
+#     podem vir como notApplicable ou gerar ruído. Calibrar via .gdnconfig
+#     ou suppressões para o job não quebrar por regra inaplicável.
+# ─────────────────────────────────────────────
+
+# ─────────────────────────────────────────────
+# LEMBRETE — BinSkim no projeto Angular/Electron (desktop-ui)
+# Na CI o "npm run build" gera só assets web (JS/HTML/CSS em dist/), que NÃO
+# são binários PE/ELF — o BinSkim não tem o que analisar lá. Os binários
+# nativos (o .exe do Electron, DLLs e addons .node) só existem APÓS o
+# empacotamento (electron-builder/forge), que é a etapa do .MSI feita AQUI
+# no deploy. Logo, o BinSkim do desktop-ui pertence a esta pipeline.
+#
+# Requisitos:
+#   • O .MSI exige runner Windows → usar runs-on: windows-latest no job de
+#     empacotamento (não dá para gerar MSI no ubuntu).
+#   • Empacotar o app (ex.: npm run build && npx electron-builder --win msi).
+#
+# Alvo do BinSkim: os PEs nativos, NÃO o .asar (que é JS) nem o .msi em si.
+# Apontar para os .exe/.dll desempacotados (ex.: a pasta win-unpacked do
+# electron-builder) antes/depois de gerar o instalador:
+#   - name: Run Microsoft Security DevOps (BinSkim)
+#     uses: microsoft/security-devops-action@v1
+#     with:
+#       tools: binskim
+#       break-on-detections: 'true'
+#     env:
+#       GDN_BINSKIM_TARGET: desktop-ui/release/win-unpacked/*.exe
+#       GDN_BINSKIM_RECURSE: 'true'
+#
+# Complemento (DAST específico de Electron): considerar o Electronegativity
+# (Doyensec) para checagens de segurança próprias do Electron — nodeIntegration,
+# contextIsolation, etc. — que o BinSkim não cobre.
+# ─────────────────────────────────────────────
+
 on:
-    pull_request:
-        branches:
-            - master
-            - develop
-        types:
-            - opened
-            - reopened
-            - synchronize
-            - ready_for_review
+    workflow_dispatch:
+        inputs:
+            branch:
+                description: 'Branch to deploy'
+                required: true
+                default: 'homolog'
 
 permissions:
     contents: read
@@ -31,11 +97,4 @@ jobs:
               with:
                 fetch-depth: 0
 
-            - name: Detect changed paths
-              id: filter
-              uses: dorny/paths-filter@v3
-              with:
-                token: ${{github.token}}
-                predicate-quantifier: every
-                filters: |
                 
