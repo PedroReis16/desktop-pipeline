@@ -156,6 +156,7 @@ jobs:
   secrets_scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    needs: detect-changes
     steps:
       - uses: actions/checkout@v4
         with:
@@ -174,6 +175,7 @@ jobs:
   # ─────────────────────────────────────────────
   commit_authors_check:
     name: Commit authors validation
+    needs: detect-changes
     runs-on: ubuntu-latest
     steps:
       - name: Validate commits for AI agent attribution
