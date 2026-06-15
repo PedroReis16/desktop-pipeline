@@ -66,6 +66,7 @@
     "@angular/cli": "^22.0.1",
     "@angular/compiler-cli": "^22.0.0",
     "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "angular-eslint": "^22.0.0",
     "concurrently": "^10.0.3",
     "cross-env": "^10.1.0",
