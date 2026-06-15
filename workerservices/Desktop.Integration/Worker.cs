@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace Desktop.Integration;
 
 public class Worker : BackgroundService
@@ -19,6 +21,8 @@ public class Worker : BackgroundService
             }
 
             await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
+
+            Debug.WriteLine("Desktop.Integration em execucao em: {time}", DateTimeOffset.Now);
         }
     }
 }
