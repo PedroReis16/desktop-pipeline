@@ -8,6 +8,6 @@ export const appConfig: ApplicationConfig = {
     provideBrowserGlobalErrorListeners(),
     // Hash routing garante que a navegação funcione sob o protocolo file://
     // usado pelo Electron no app empacotado.
-    provideRouter(routes, withHashLocation())
-  ]
+    provideRouter(routes, withHashLocation()),
+  ],
 };
