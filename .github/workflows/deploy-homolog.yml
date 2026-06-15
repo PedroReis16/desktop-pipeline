@@ -1,15 +1,12 @@
 name: Deploy Homolog
 
 on:
-    pull_request:
-        branches:
-            - master
-            - develop
-        types:
-            - opened
-            - reopened
-            - synchronize
-            - ready_for_review
+    workflow_dispatch:
+        inputs:
+            branch:
+                description: 'Branch to deploy'
+                required: true
+                default: 'homolog'
 
 permissions:
     contents: read
@@ -31,11 +28,4 @@ jobs:
               with:
                 fetch-depth: 0
 
-            - name: Detect changed paths
-              id: filter
-              uses: dorny/paths-filter@v3
-              with:
-                token: ${{github.token}}
-                predicate-quantifier: every
-                filters: |
                 
