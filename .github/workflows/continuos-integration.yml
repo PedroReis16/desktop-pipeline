@@ -519,8 +519,18 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Restore .NET dependencies
-        run: dotnet restore "${{ matrix.project.path }}"
+      # Restauração com NuGet Audit habilitado: os próprios analisadores do
+      # .NET avaliam os pacotes (diretos e transitivos) contra a base de
+      # advisories da NuGet durante o restore — análogo ao "govulncheck" do Go,
+      # mas built-in do SDK. As advertências de vulnerabilidade (NU1901–NU1904)
+      # são promovidas a erro para que dependências vulneráveis falhem a CI.
+      - name: Restore .NET dependencies (NuGet Audit)
+        run: |
+          dotnet restore "${{ matrix.project.path }}" \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            -p:NuGetAuditLevel=low \
+            -warnaserror:NU1901,NU1902,NU1903,NU1904
 
       # Resolve a última versão estável (NuGet) das ferramentas de validação
       # externas, como o "Resolve latest security tool versions" do Go. As
@@ -544,17 +554,19 @@ jobs:
 
           ROSLYNATOR=$(resolve_nuget_latest roslynator.dotnet.cli)
           SECURITY_SCAN=$(resolve_nuget_latest security-scan)
+          BINSKIM=$(resolve_nuget_latest microsoft.codeanalysis.binskim)
 
           {
             echo "roslynator=$ROSLYNATOR"
             echo "security_scan=$SECURITY_SCAN"
+            echo "binskim=$BINSKIM"
           } >> "$GITHUB_OUTPUT"
 
           # Coloca os global tools no PATH dos próximos passos, inclusive em
           # cache hit (quando o install é pulado).
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
-          echo "Versões resolvidas → roslynator=$ROSLYNATOR | security-scan=$SECURITY_SCAN"
+          echo "Versões resolvidas → roslynator=$ROSLYNATOR | security-scan=$SECURITY_SCAN | binskim=$BINSKIM"
 
       # Cache dos global tools, análogo ao cache de ~/go/bin do Go.
       - name: Cache .NET validation tools
@@ -562,7 +574,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet/tools
-          key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}
+          key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}-binskim${{ steps.dotnet_tools.outputs.binskim }}
 
       # Só instala em cache miss (saiu versão nova de alguma ferramenta).
       - name: Install .NET validation tools
@@ -571,14 +583,28 @@ jobs:
           set -euo pipefail
           dotnet tool install --global roslynator.dotnet.cli --version "${{ steps.dotnet_tools.outputs.roslynator }}"
           dotnet tool install --global security-scan --version "${{ steps.dotnet_tools.outputs.security_scan }}"
+          dotnet tool install --global Microsoft.CodeAnalysis.BinSkim --version "${{ steps.dotnet_tools.outputs.binskim }}"
 
       # ─── Checks ────────────────────────────────────────────────────
       # Formatação/estilo — análogo ao "Go - lint". Built-in do SDK.
       - name: .NET - format check
         run: dotnet format "${{ matrix.project.path }}" --verify-no-changes --no-restore
 
-      - name: .NET - build
-        run: dotnet build "${{ matrix.project.path }}" --no-restore
+      # Build com os Roslyn Analyzers (Microsoft.CodeAnalysis.NetAnalyzers)
+      # habilitados em modo completo. As advertências dos analisadores (CAxxxx)
+      # e do compilador são promovidas a erro, de modo que a análise estática
+      # nativa do .NET efetivamente bloqueie a CI. As advertências de
+      # vulnerabilidade do NuGet Audit (NU1901–NU1904) já são tratadas no passo
+      # de restore e ficam de fora deste warn-as-error.
+      - name: .NET - build (Roslyn Analyzers)
+        run: |
+          dotnet build "${{ matrix.project.path }}" --no-restore \
+            -p:EnableNETAnalyzers=true \
+            -p:AnalysisMode=All \
+            -p:AnalysisLevel=latest \
+            -p:EnforceCodeStyleInBuild=true \
+            -warnaserror \
+            -p:WarningsNotAsErrors=NU1901,NU1902,NU1903,NU1904
 
       # Lint/análise Roslyn — análogo ao "Go - lint" (golangci-lint).
       - name: .NET - lint (Roslynator)
@@ -597,6 +623,39 @@ jobs:
           echo "$OUT"
           if echo "$OUT" | grep -qi 'has the following vulnerable packages'; then
             echo "::error::Pacotes vulneráveis encontrados em ${{ matrix.project.name }}."
+            exit 1
+          fi
+
+      # ─── DAST — análise dos binários (BinSkim) ─────────────────────
+      # Camada de testes sobre os artefatos compilados: o BinSkim inspeciona os
+      # binários gerados (PE/.dll) em busca de configurações de compilação e
+      # hardening inseguras. Analisamos a(s) assembly(ies) do próprio projeto
+      # produzidas no passo de build.
+      - name: .NET - DAST (BinSkim binary analysis)
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+
+          # Localiza a(s) assembly(ies) do próprio projeto na saída de build.
+          TARGETS=( "${{ matrix.project.path }}"/bin/**/"${{ matrix.project.name }}".dll )
+          if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+            echo "::error::Nenhum binário de ${{ matrix.project.name }} encontrado para a análise do BinSkim."
+            exit 1
+          fi
+
+          SARIF="${{ matrix.project.path }}/binskim.sarif"
+
+          # O --rich-return-code devolve um bitfield que não cabe no exit code do
+          # shell; por isso não confiamos nele e inspecionamos o SARIF abaixo.
+          binskim analyze "${TARGETS[@]}" --output "$SARIF" --recurse true || true
+
+          # Em SARIF, um resultado sem "kind" é, por padrão, uma falha ("fail").
+          # O BinSkim marca checks aprovados/não aplicáveis como "pass"/"notApplicable".
+          FINDINGS=$(jq '[.runs[].results[]? | select((.kind // "fail") == "fail")] | length' "$SARIF")
+          echo "BinSkim findings: $FINDINGS"
+          if [[ "$FINDINGS" -gt 0 ]]; then
+            jq -r '.runs[].results[]? | select((.kind // "fail") == "fail") | "  • [\(.level // "warning")] \(.ruleId): \(.message.text)"' "$SARIF"
+            echo "::error::BinSkim encontrou problemas de hardening/segurança nos binários de ${{ matrix.project.name }}."
             exit 1
           fi
 
