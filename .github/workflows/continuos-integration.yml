@@ -278,7 +278,7 @@ jobs:
   quality_go:
     name: "Go · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
     strategy:
       fail-fast: false
@@ -398,7 +398,7 @@ jobs:
   quality_node:
     name: "Node · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
     strategy:
       fail-fast: false
@@ -494,7 +494,7 @@ jobs:
   quality_dotnet:
     name: ".NET · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
     strategy:
       fail-fast: false
