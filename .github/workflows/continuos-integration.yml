@@ -1,6 +1,6 @@
 name: Continuous Integration
 
-run-name: ${{ github.event.pull_request.title }} - #{${{ github.event.pull_request.number }}}
+run-name: '${{ github.event.pull_request.title }} - #${{ github.event.pull_request.number }}'
 
 on:
   pull_request:
