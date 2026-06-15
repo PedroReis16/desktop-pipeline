@@ -381,12 +381,13 @@ jobs:
       - name: Go - build (security flags)
         working-directory: ${{ matrix.project.path }}
         run: |
+          set -euo pipefail
           mkdir -p bin
           go build \
             -buildmode=pie \
             -trimpath \
-            -buildid=" \
-            -o ./bin/${{ matrix.project.name }} \
+            -ldflags="-buildid=" \
+            -o "./bin/${{ matrix.project.name }}" \
             ./...
 
       - name: DAST - Run Microsoft Security DevOps (BinSkim)
