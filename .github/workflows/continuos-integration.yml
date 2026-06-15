@@ -1,6 +1,6 @@
 name: Continuous Integration
 
-run-name: ${{ github.event.pull_request.title }} - #${{ github.event.pull_request.number }}
+run-name: ${{ github.event.pull_request.title }} - #{${{ github.event.pull_request.number }}}
 
 on:
   pull_request:
@@ -293,7 +293,7 @@ jobs:
         id: setup_go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.project.go_mod }}
+          go-version-file: ${{ matrix.project.go_mod }}
           cache-dependency-path: ${{ matrix.project.path }}/go.sum
 
       - name: Resolve latest security tool versions
