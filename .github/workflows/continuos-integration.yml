@@ -618,14 +618,35 @@ jobs:
             exit 1
           fi
 
+      # ─── DAST — análise dos binários (BinSkim via MSDO) ────────────
+      # A saída do build fica em bin/<Configuration>/<TargetFramework>/.
+      # O glob bin/*/Assembly.dll não alcança esse nível; resolvemos o caminho
+      # exato antes de invocar o MSDO para evitar NoGlobResultsFoundException.
+      - name: Resolve BinSkim target
+        id: binskim_target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            find "${{ matrix.project.path }}/bin" -type f -name "${{ matrix.project.name }}.dll" \
+              ! -path '*/publish/*' ! -path '*/ref/*' | sort
+          )
+          if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+            echo "::error::Assembly ${{ matrix.project.name }}.dll não encontrada em ${{ matrix.project.path }}/bin"
+            find "${{ matrix.project.path }}/bin" -type f 2>/dev/null | head -30 || true
+            exit 1
+          fi
+          TARGET="${TARGETS[0]}"
+          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "BinSkim target: $TARGET"
+
       - name: Run Microsoft Security DevOps (BinSkim)
         uses: microsoft/security-devops-action@v1
         with:
           tools: binskim
           break-on-detections: 'true'
         env:
-          GDN_BINSKIM_TARGET: ${{ matrix.project.path }}/bin/*/${{ matrix.project.name }}.dll
-          GDN_BINSKIM_RECURSE: 'true'
+          GDN_BINSKIM_TARGET: ${{ steps.binskim_target.outputs.path }}
 
       # Testes unitários com cobertura — análogo ao "Go - tests with coverage".
       - name: .NET - tests with coverage
