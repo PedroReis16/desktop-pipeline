@@ -8,7 +8,7 @@ on:
         type: string
 
 jobs:
-  quality_dotnet:
+  csharp:
     name: ".NET · ${{ matrix.project.name }}"
     runs-on: ubuntu-latest
     env:
