@@ -1,0 +1,100 @@
+name: Angular - Continuous Integration
+
+on:
+  workflow_call:
+    inputs:
+      node_matrix:
+        required: true
+        type: string
+
+jobs:
+  node:
+    name: "Node · ${{ matrix.project.name }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(inputs.node_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # node-version: lts/* mantém o runtime sempre no último Node LTS. O cache
+      # de npm (download) é o análogo ao cache de módulos do setup-go.
+      - name: Set up Node
+        id: setup_node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: ${{ matrix.project.path }}/package-lock.json
+
+      # Resolve a última versão das bibliotecas de validação (lint/SAST/format),
+      # como o "Resolve latest security tool versions" do Go. Essas versões
+      # entram na chave do cache de node_modules: enquanto não houver release
+      # nova (nem mudança no lockfile), há cache hit; quando sair uma versão
+      # nova, a chave muda e força a reinstalação — validação sempre atualizada.
+      - name: Resolve latest validation tool versions
+        id: node_tools
+        run: |
+          set -euo pipefail
+          v() { npm view "$1" version; }
+          {
+            echo "eslint=$(v eslint)"
+            echo "eslint_js=$(v @eslint/js)"
+            echo "tseslint=$(v typescript-eslint)"
+            echo "angular_eslint=$(v angular-eslint)"
+            echo "eslint_security=$(v eslint-plugin-security)"
+            echo "prettier=$(v prettier)"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Versões resolvidas → eslint=$(v eslint) | angular-eslint=$(v angular-eslint) | eslint-plugin-security=$(v eslint-plugin-security) | prettier=$(v prettier)"
+
+      # Cache do node_modules (deps + validadores), análogo ao cache de ~/go/bin.
+      - name: Cache Node dependencies and validators
+        id: cache_node
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.project.path }}/node_modules
+          key: node-deps-${{ runner.os }}-node${{ steps.setup_node.outputs.node-version }}-lock${{ hashFiles(format('{0}/package-lock.json', matrix.project.path)) }}-eslint${{ steps.node_tools.outputs.eslint }}-tseslint${{ steps.node_tools.outputs.tseslint }}-ngeslint${{ steps.node_tools.outputs.angular_eslint }}-sec${{ steps.node_tools.outputs.eslint_security }}-prettier${{ steps.node_tools.outputs.prettier }}
+
+      # Só instala em cache miss (lockfile mudou ou saiu validador novo). Em
+      # cache hit, o node_modules é restaurado e este passo é pulado.
+      - name: Install Node dependencies and latest validators
+        if: steps.cache_node.outputs.cache-hit != 'true'
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          npm ci
+          npm install -D --no-save \
+            eslint@${{ steps.node_tools.outputs.eslint }} \
+            @eslint/js@${{ steps.node_tools.outputs.eslint_js }} \
+            typescript-eslint@${{ steps.node_tools.outputs.tseslint }} \
+            angular-eslint@${{ steps.node_tools.outputs.angular_eslint }} \
+            eslint-plugin-security@${{ steps.node_tools.outputs.eslint_security }} \
+            prettier@${{ steps.node_tools.outputs.prettier }}
+
+      - name: Node - format check
+        working-directory: ${{ matrix.project.path }}
+        run: npx prettier --check .
+
+      - name: Node - SAST
+        working-directory: ${{ matrix.project.path }}
+        run: npm run lint
+
+      - name: Node - build
+        working-directory: ${{ matrix.project.path }}
+        run: npm run build
+
+      - name: Node - dependency vulnerabilities
+        working-directory: ${{ matrix.project.path }}
+        run: npm audit --audit-level=high
+
+      - name: Node - tests with coverage
+        working-directory: ${{ matrix.project.path }}
+        run: npm test -- --no-watch --coverage
+
+      - name: Node - coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.project.name }}
+          path: ${{ matrix.project.path }}/coverage/
+          retention-days: 7
