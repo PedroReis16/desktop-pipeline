@@ -1,0 +1,151 @@
+name: C# - Continuous Integration
+
+on:
+  workflow_call:
+    inputs:
+      dotnet_matrix:
+        required: true
+        type: string
+
+jobs:
+  csharp:
+    name: ".NET · ${{ matrix.project.name }}"
+    runs-on: ubuntu-latest
+    env:
+      DOTNET_ROLL_FORWARD: LatestMajor
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(inputs.dotnet_matrix) }} # Corrigido: usa inputs em vez de needs.detect-changes.outputs
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles(format('{0}/**/*.csproj', matrix.project.path)) }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Restore .NET dependencies (NuGet Audit)
+        run: |
+          dotnet restore "${{ matrix.project.path }}" \
+            -p:NuGetAudit=true \
+            -p:NuGetAuditMode=all \
+            -p:NuGetAuditLevel=low \
+            -warnaserror:NU1901%3BNU1902%3BNU1903%3BNU1904
+
+      - name: Resolve latest validation tool versions
+        id: dotnet_tools
+        run: |
+          set -euo pipefail
+
+          resolve_nuget_latest() {
+            local v
+            v=$(curl -fsSL "https://api.nuget.org/v3-flatcontainer/$1/index.json" \
+                | jq -r '.versions[]' | grep -vE '-' | sort -V | tail -n1)
+            if [[ -z "$v" ]]; then
+              echo "::error::Não foi possível resolver a última versão do pacote $1." >&2
+              exit 1
+            fi
+            printf '%s' "$v"
+          }
+
+          ROSLYNATOR=$(resolve_nuget_latest roslynator.dotnet.cli)
+          SECURITY_SCAN=$(resolve_nuget_latest security-scan)
+
+          {
+            echo "roslynator=$ROSLYNATOR"
+            echo "security_scan=$SECURITY_SCAN"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          echo "Versões resolvidas → roslynator=$ROSLYNATOR | security-scan=$SECURITY_SCAN"
+
+      - name: Cache .NET validation tools
+        id: cache_dotnet_tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet/tools
+          key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}
+
+      - name: Install .NET validation tools
+        if: steps.cache_dotnet_tools.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          dotnet tool install --global roslynator.dotnet.cli --version "${{ steps.dotnet_tools.outputs.roslynator }}"
+          dotnet tool install --global security-scan --version "${{ steps.dotnet_tools.outputs.security_scan }}"
+
+      - name: .NET - format check
+        run: dotnet format "${{ matrix.project.path }}" --verify-no-changes --no-restore
+
+      - name: .NET - build (Roslyn Analyzers)
+        run: |
+          dotnet build "${{ matrix.project.path }}" --no-restore \
+            -p:EnableNETAnalyzers=true \
+            -p:AnalysisMode=All \
+            -p:AnalysisLevel=latest \
+            -p:EnforceCodeStyleInBuild=true \
+            -warnaserror \
+            -p:WarningsNotAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
+
+      - name: .NET - lint (Roslynator)
+        run: roslynator analyze "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
+
+      - name: .NET - SAST (Security Code Scan)
+        run: security-scan "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
+
+      - name: .NET - dependency vulnerabilities
+        run: |
+          set -euo pipefail
+          OUT=$(dotnet list "${{ matrix.project.path }}" package --vulnerable --include-transitive 2>&1)
+          echo "$OUT"
+          if echo "$OUT" | grep -qi 'has the following vulnerable packages'; then
+            echo "::error::Pacotes vulneráveis encontrados em ${{ matrix.project.name }}."
+            exit 1
+          fi
+
+      - name: Resolve BinSkim target
+        id: binskim_target
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t TARGETS < <(
+            find "${{ matrix.project.path }}/bin" -type f -name "${{ matrix.project.name }}.dll" \
+              ! -path '*/publish/*' ! -path '*/ref/*' | sort
+          )
+          if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+            echo "::error::Assembly ${{ matrix.project.name }}.dll não encontrada em ${{ matrix.project.path }}/bin"
+            find "${{ matrix.project.path }}/bin" -type f 2>/dev/null | head -30 || true
+            exit 1
+          fi
+          TARGET="${TARGETS[0]}"
+          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "BinSkim target: $TARGET"
+
+      - name: Run Microsoft Security DevOps (BinSkim)
+        uses: microsoft/security-devops-action@v1
+        with:
+          tools: binskim
+          break-on-detections: 'true'
+        env:
+          GDN_BINSKIM_TARGET: ${{ steps.binskim_target.outputs.path }}
+
+      - name: .NET - tests with coverage
+        run: dotnet test "${{ matrix.project.unit_tests }}" --collect:"XPlat Code Coverage"
+
+      - name: .NET - coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.project.name }}
+          path: ${{ matrix.project.unit_tests }}/TestResults/**/coverage.cobertura.xml
+          if-no-files-found: ignore
+          retention-days: 7

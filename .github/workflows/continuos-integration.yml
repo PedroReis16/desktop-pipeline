@@ -1,6 +1,6 @@
 name: Continuous Integration
 
-run-name: '${{ github.event.pull_request.title }} - #${{ github.event.pull_request.number }}'
+run-name: "${{ github.event.pull_request.title }} - #${{ github.event.pull_request.number }}"
 
 on:
   pull_request:
@@ -42,11 +42,9 @@ jobs:
           token: ${{github.token}}
           filters: |
             desktop_ui:
-              - 'desktop-ui/**'
-              - '!desktop-ui/**/*.md'
+              - 'desktop-ui/!(**/*.md)/**'
             desktop_cmd:
-              - 'desktop-cmd/**'
-              - '!desktop-cmd/**/*.md'
+              - 'desktop-cmd/!(**/*.md)/**'
             # Serviços .NET: cada um casado com o próprio código e o próprio
             # projeto de testes UNITÁRIOS. Os testes de integração ficam de
             # fora da CI (reservados para as pipelines de deploy).
@@ -278,407 +276,31 @@ jobs:
   # vazia, o job inteiro é pulado. Sem condicionais por step.
   # ─────────────────────────────────────────────
   quality_go:
-    name: "Go · ${{ matrix.project.name }}"
-    runs-on: ubuntu-latest
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        project: ${{ fromJSON(needs.detect-changes.outputs.go_matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        id: setup_go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: ${{ matrix.project.go_mod }}
-          cache-dependency-path: ${{ matrix.project.path }}/go.sum
-
-      - name: Resolve latest security tool versions
-        id: tool_versions
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          # Última release estável (não draft/pre-release) de um repo GitHub.
-          resolve_gh_latest() {  # $1 = owner/repo
-            local tag
-            tag=$(gh release view --repo "$1" --json tagName --jq '.tagName')
-            if [[ -z "$tag" ]]; then
-              echo "::error::Não foi possível resolver a última versão de $1." >&2
-              exit 1
-            fi
-            printf '%s' "$tag"
-          }
-
-          GOLANGCI=$(resolve_gh_latest golangci/golangci-lint)
-          GOSEC=$(resolve_gh_latest securego/gosec)
-
-          # govulncheck é módulo Go: a versão mais recente vem do proxy oficial.
-          GOVULNCHECK=$(curl -fsSL https://proxy.golang.org/golang.org/x/vuln/@latest | jq -r '.Version')
-          if [[ -z "$GOVULNCHECK" || "$GOVULNCHECK" == "null" ]]; then
-            echo "::error::Não foi possível resolver a última versão do govulncheck." >&2
-            exit 1
-          fi
-
-          {
-            echo "golangci=$GOLANGCI"
-            echo "gosec=$GOSEC"
-            echo "govulncheck=$GOVULNCHECK"
-          } >> "$GITHUB_OUTPUT"
-
-          # Garante que os binários instalados em GOPATH/bin fiquem no PATH
-          # dos próximos passos, mesmo em caso de cache hit (sem reinstalar).
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-
-          echo "Versões resolvidas → golangci-lint=$GOLANGCI | gosec=$GOSEC | govulncheck=$GOVULNCHECK"
-
-      - name: Cache Go security tools
-        id: cache_go_tools
-        uses: actions/cache@v4
-        with:
-          path: ~/go/bin
-          key: go-sec-tools-${{ runner.os }}-go${{ steps.setup_go.outputs.go-version }}-gosec${{ steps.tool_versions.outputs.gosec }}-govulncheck${{ steps.tool_versions.outputs.govulncheck }}-golangci${{ steps.tool_versions.outputs.golangci }}
-
-      # Só instala quando a chave acima deu cache miss (ou seja, quando há uma
-      # versão nova de alguma ferramenta). Em cache hit, este passo é pulado.
-      - name: Install Go security tools
-        if: steps.cache_go_tools.outputs.cache-hit != 'true'
-        env:
-          GOLANGCI_LINT_VERSION: ${{ steps.tool_versions.outputs.golangci }}
-          GOSEC_VERSION: ${{ steps.tool_versions.outputs.gosec }}
-          GOVULNCHECK_VERSION: ${{ steps.tool_versions.outputs.govulncheck }}
-        run: |
-          set -euo pipefail
-          BIN="$(go env GOPATH)/bin"
-
-          # gosec e golangci-lint via script oficial de instalação: ele baixa
-          # o binário correto mesmo quando o caminho do módulo muda entre
-          # versões major (ex.: golangci-lint v1 → v2).
-          curl -sSfL https://raw.githubusercontent.com/securego/gosec/master/install.sh \
-            | sh -s -- -b "$BIN" "$GOSEC_VERSION"
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
-            | sh -s -- -b "$BIN" "$GOLANGCI_LINT_VERSION"
-
-          # govulncheck tem caminho de módulo estável.
-          go install golang.org/x/vuln/cmd/govulncheck@"$GOVULNCHECK_VERSION"
-
-      - name: Go - lint
-        working-directory: ${{ matrix.project.path }}
-        run: golangci-lint run --timeout=5m
-
-      - name: Go - SAST
-        working-directory: ${{ matrix.project.path }}
-        run: gosec ./...
-
-      - name: Go - Dependencies vulnerabilities
-        working-directory: ${{ matrix.project.path }}
-        run: govulncheck ./...
-
-      - name: Go - build (security flags)
-        working-directory: ${{ matrix.project.path }}
-        run: |
-          set -euo pipefail
-          mkdir -p bin
-          go build \
-            -buildmode=pie \
-            -trimpath \
-            -ldflags="-buildid=" \
-            -o "./bin/${{ matrix.project.name }}" \
-            ./...
-
-      - name: DAST - Run Microsoft Security DevOps (BinSkim)
-        uses: microsoft/security-devops-action@v1
-        with:
-          tools: binskim
-          break-on-detections: 'true'
-        env:
-          GDN_BINSKIM_TARGET: ${{ matrix.project.path }}/bin/${{ matrix.project.name }}
-
-      - name: Go - tests with coverage
-        working-directory: ${{ matrix.project.path }}
-        run: |
-          go test ./... \
-            -race \
-            -coverprofile=coverage.out \
-            -covermode=atomic \
-            -timeout=120s
-
-      - name: Go - coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.project.name }}
-          path: ${{ matrix.project.path }}/coverage.out
-          retention-days: 7
+    uses: ./.github/workflows/ci-golang.yml
+    with:
+      go_matrix: ${{ needs.detect-changes.outputs.go_matrix }}
 
   # ─────────────────────────────────────────────
   # 4. QUALIDADE — NODE / ANGULAR
   # ─────────────────────────────────────────────
   quality_node:
-    name: "Node · ${{ matrix.project.name }}"
-    runs-on: ubuntu-latest
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
-    strategy:
-      fail-fast: false
-      matrix:
-        project: ${{ fromJSON(needs.detect-changes.outputs.node_matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-
-      # node-version: lts/* mantém o runtime sempre no último Node LTS. O cache
-      # de npm (download) é o análogo ao cache de módulos do setup-go.
-      - name: Set up Node
-        id: setup_node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: npm
-          cache-dependency-path: ${{ matrix.project.path }}/package-lock.json
-
-      # Resolve a última versão das bibliotecas de validação (lint/SAST/format),
-      # como o "Resolve latest security tool versions" do Go. Essas versões
-      # entram na chave do cache de node_modules: enquanto não houver release
-      # nova (nem mudança no lockfile), há cache hit; quando sair uma versão
-      # nova, a chave muda e força a reinstalação — validação sempre atualizada.
-      - name: Resolve latest validation tool versions
-        id: node_tools
-        run: |
-          set -euo pipefail
-          v() { npm view "$1" version; }
-          {
-            echo "eslint=$(v eslint)"
-            echo "eslint_js=$(v @eslint/js)"
-            echo "tseslint=$(v typescript-eslint)"
-            echo "angular_eslint=$(v angular-eslint)"
-            echo "eslint_security=$(v eslint-plugin-security)"
-            echo "prettier=$(v prettier)"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "Versões resolvidas → eslint=$(v eslint) | angular-eslint=$(v angular-eslint) | eslint-plugin-security=$(v eslint-plugin-security) | prettier=$(v prettier)"
-
-      # Cache do node_modules (deps + validadores), análogo ao cache de ~/go/bin.
-      - name: Cache Node dependencies and validators
-        id: cache_node
-        uses: actions/cache@v4
-        with:
-          path: ${{ matrix.project.path }}/node_modules
-          key: node-deps-${{ runner.os }}-node${{ steps.setup_node.outputs.node-version }}-lock${{ hashFiles(format('{0}/package-lock.json', matrix.project.path)) }}-eslint${{ steps.node_tools.outputs.eslint }}-tseslint${{ steps.node_tools.outputs.tseslint }}-ngeslint${{ steps.node_tools.outputs.angular_eslint }}-sec${{ steps.node_tools.outputs.eslint_security }}-prettier${{ steps.node_tools.outputs.prettier }}
-
-      # Só instala em cache miss (lockfile mudou ou saiu validador novo). Em
-      # cache hit, o node_modules é restaurado e este passo é pulado.
-      - name: Install Node dependencies and latest validators
-        if: steps.cache_node.outputs.cache-hit != 'true'
-        working-directory: ${{ matrix.project.path }}
-        run: |
-          npm ci
-          npm install -D --no-save \
-            eslint@${{ steps.node_tools.outputs.eslint }} \
-            @eslint/js@${{ steps.node_tools.outputs.eslint_js }} \
-            typescript-eslint@${{ steps.node_tools.outputs.tseslint }} \
-            angular-eslint@${{ steps.node_tools.outputs.angular_eslint }} \
-            eslint-plugin-security@${{ steps.node_tools.outputs.eslint_security }} \
-            prettier@${{ steps.node_tools.outputs.prettier }}
-
-      - name: Node - format check
-        working-directory: ${{ matrix.project.path }}
-        run: npx prettier --check .
-
-      - name: Node - SAST
-        working-directory: ${{ matrix.project.path }}
-        run: npm run lint
-
-      - name: Node - build
-        working-directory: ${{ matrix.project.path }}
-        run: npm run build
-
-      - name: Node - dependency vulnerabilities
-        working-directory: ${{ matrix.project.path }}
-        run: npm audit --audit-level=high
-
-      - name: Node - tests with coverage
-        working-directory: ${{ matrix.project.path }}
-        run: npm test -- --no-watch --coverage
-
-      - name: Node - coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.project.name }}
-          path: ${{ matrix.project.path }}/coverage/
-          retention-days: 7
+    uses: ./.github/workflows/ci-angular.yml
+    with:
+      node_matrix: ${{ needs.detect-changes.outputs.node_matrix }}
 
   # ─────────────────────────────────────────────
   # 4. QUALIDADE — C# / .NET
   # ─────────────────────────────────────────────
   quality_dotnet:
-    name: ".NET · ${{ matrix.project.name }}"
-    runs-on: ubuntu-latest
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
-    # Global tools (ex.: security-scan) podem publicar para runtimes antigos.
-    # Roll-forward permite executá-los no runtime mais novo disponível quando
-    # o TFM exato não estiver instalado.
-    env:
-      DOTNET_ROLL_FORWARD: LatestMajor
-    strategy:
-      fail-fast: false
-      matrix:
-        project: ${{ fromJSON(needs.detect-changes.outputs.dotnet_matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: |
-            10.0.x
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles(format('{0}/**/*.csproj', matrix.project.path)) }}
-          restore-keys: |
-            nuget-${{ runner.os }}-
-
-      # Restauração com NuGet Audit habilitado: os próprios analisadores do
-      # .NET avaliam os pacotes (diretos e transitivos) contra a base de
-      # advisories da NuGet durante o restore — análogo ao "govulncheck" do Go,
-      # mas built-in do SDK. As advertências de vulnerabilidade (NU1901–NU1904)
-      # são promovidas a erro para que dependências vulneráveis falhem a CI.
-      - name: Restore .NET dependencies (NuGet Audit)
-        run: |
-          dotnet restore "${{ matrix.project.path }}" \
-            -p:NuGetAudit=true \
-            -p:NuGetAuditMode=all \
-            -p:NuGetAuditLevel=low \
-            -warnaserror:NU1901%3BNU1902%3BNU1903%3BNU1904
-
-      # Resolve a última versão estável (NuGet) das ferramentas de validação
-      # externas, como o "Resolve latest security tool versions" do Go. As
-      # versões entram na chave do cache de ~/.dotnet/tools.
-      - name: Resolve latest validation tool versions
-        id: dotnet_tools
-        run: |
-          set -euo pipefail
-
-          # Maior versão estável (sem sufixo de pre-release) de um pacote NuGet.
-          resolve_nuget_latest() {  # $1 = id do pacote (minúsculo)
-            local v
-            v=$(curl -fsSL "https://api.nuget.org/v3-flatcontainer/$1/index.json" \
-                | jq -r '.versions[]' | grep -vE '-' | sort -V | tail -n1)
-            if [[ -z "$v" ]]; then
-              echo "::error::Não foi possível resolver a última versão do pacote $1." >&2
-              exit 1
-            fi
-            printf '%s' "$v"
-          }
-
-          ROSLYNATOR=$(resolve_nuget_latest roslynator.dotnet.cli)
-          SECURITY_SCAN=$(resolve_nuget_latest security-scan)
-
-          {
-            echo "roslynator=$ROSLYNATOR"
-            echo "security_scan=$SECURITY_SCAN"
-          } >> "$GITHUB_OUTPUT"
-
-          # Coloca os global tools no PATH dos próximos passos, inclusive em
-          # cache hit (quando o install é pulado).
-          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
-
-          echo "Versões resolvidas → roslynator=$ROSLYNATOR | security-scan=$SECURITY_SCAN"
-
-      # Cache dos global tools, análogo ao cache de ~/go/bin do Go.
-      - name: Cache .NET validation tools
-        id: cache_dotnet_tools
-        uses: actions/cache@v4
-        with:
-          path: ~/.dotnet/tools
-          key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}
-
-      # Só instala em cache miss (saiu versão nova de alguma ferramenta).
-      - name: Install .NET validation tools
-        if: steps.cache_dotnet_tools.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          dotnet tool install --global roslynator.dotnet.cli --version "${{ steps.dotnet_tools.outputs.roslynator }}"
-          dotnet tool install --global security-scan --version "${{ steps.dotnet_tools.outputs.security_scan }}"
-
-      # ─── Checks ────────────────────────────────────────────────────
-      
-      - name: .NET - format check
-        run: dotnet format "${{ matrix.project.path }}" --verify-no-changes --no-restore
-
-      - name: .NET - build (Roslyn Analyzers)
-        run: |
-          dotnet build "${{ matrix.project.path }}" --no-restore \
-            -p:EnableNETAnalyzers=true \
-            -p:AnalysisMode=All \
-            -p:AnalysisLevel=latest \
-            -p:EnforceCodeStyleInBuild=true \
-            -warnaserror \
-            -p:WarningsNotAsErrors=NU1901%3BNU1902%3BNU1903%3BNU1904
-
-      - name: .NET - lint (Roslynator)
-        run: roslynator analyze "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
-
-      - name: .NET - SAST (Security Code Scan)
-        run: security-scan "${{ matrix.project.path }}/${{ matrix.project.name }}.csproj"
-
-      - name: .NET - dependency vulnerabilities
-        run: |
-          set -euo pipefail
-          OUT=$(dotnet list "${{ matrix.project.path }}" package --vulnerable --include-transitive 2>&1)
-          echo "$OUT"
-          if echo "$OUT" | grep -qi 'has the following vulnerable packages'; then
-            echo "::error::Pacotes vulneráveis encontrados em ${{ matrix.project.name }}."
-            exit 1
-          fi
-
-      # ─── DAST — análise dos binários (BinSkim via MSDO) ────────────
-      # A saída do build fica em bin/<Configuration>/<TargetFramework>/.
-      # O glob bin/*/Assembly.dll não alcança esse nível; resolvemos o caminho
-      # exato antes de invocar o MSDO para evitar NoGlobResultsFoundException.
-      - name: Resolve BinSkim target
-        id: binskim_target
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t TARGETS < <(
-            find "${{ matrix.project.path }}/bin" -type f -name "${{ matrix.project.name }}.dll" \
-              ! -path '*/publish/*' ! -path '*/ref/*' | sort
-          )
-          if [[ "${#TARGETS[@]}" -eq 0 ]]; then
-            echo "::error::Assembly ${{ matrix.project.name }}.dll não encontrada em ${{ matrix.project.path }}/bin"
-            find "${{ matrix.project.path }}/bin" -type f 2>/dev/null | head -30 || true
-            exit 1
-          fi
-          TARGET="${TARGETS[0]}"
-          echo "path=$TARGET" >> "$GITHUB_OUTPUT"
-          echo "BinSkim target: $TARGET"
-
-      - name: Run Microsoft Security DevOps (BinSkim)
-        uses: microsoft/security-devops-action@v1
-        with:
-          tools: binskim
-          break-on-detections: 'true'
-        env:
-          GDN_BINSKIM_TARGET: ${{ steps.binskim_target.outputs.path }}
-
-      # Testes unitários com cobertura — análogo ao "Go - tests with coverage".
-      - name: .NET - tests with coverage
-        run: dotnet test "${{ matrix.project.unit_tests }}" --collect:"XPlat Code Coverage"
-
-      - name: .NET - coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.project.name }}
-          path: ${{ matrix.project.unit_tests }}/TestResults/**/coverage.cobertura.xml
-          if-no-files-found: ignore
-          retention-days: 7
+    uses: ./.github/workflows/ci-csharp.yml
+    with:
+      dotnet_matrix: ${{ needs.detect-changes.outputs.dotnet_matrix }}
 
   # ─────────────────────────────────────────────
   # 5. CI GATE
@@ -731,15 +353,15 @@ jobs:
           # Jobs condicionais: só falha se rodaram E falharam.
           # Se for skipped, não é obrigatório para esta PR.
           if [[ "$GO" != "skipped" && "$GO" != "success" ]]; then
-            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            echo "::error::A validação de qualidade Go falhou."
             FAIL=1
           fi
           if [[ "$NODE" != "skipped" && "$NODE" != "success" ]]; then
-            echo "::error::A validação qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            echo "::error::A validação de qualidade Node falhou."
             FAIL=1
           fi
           if [[ "$DOTNET" != "skipped" && "$DOTNET" != "success" ]]; then
-            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            echo "::error::A validação de qualidade .NET falhou."
             FAIL=1
           fi
 

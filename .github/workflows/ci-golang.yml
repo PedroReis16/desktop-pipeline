@@ -1,0 +1,144 @@
+name: Go - Continuous Integration
+
+on:
+  workflow_call:
+    inputs:
+      go_matrix:
+        required: true
+        type: string
+
+jobs:
+  go:
+    name: "Go · ${{ matrix.project.name }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(inputs.go_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        id: setup_go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.project.go_mod }}
+          cache-dependency-path: ${{ matrix.project.path }}/go.sum
+
+      - name: Resolve latest security tool versions
+        id: tool_versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Última release estável (não draft/pre-release) de um repo GitHub.
+          resolve_gh_latest() {  # $1 = owner/repo
+            local tag
+            tag=$(gh release view --repo "$1" --json tagName --jq '.tagName')
+            if [[ -z "$tag" ]]; then
+              echo "::error::Não foi possível resolver a última versão de $1." >&2
+              exit 1
+            fi
+            printf '%s' "$tag"
+          }
+
+          GOLANGCI=$(resolve_gh_latest golangci/golangci-lint)
+          GOSEC=$(resolve_gh_latest securego/gosec)
+
+          # govulncheck é módulo Go: a versão mais recente vem do proxy oficial.
+          GOVULNCHECK=$(curl -fsSL https://proxy.golang.org/golang.org/x/vuln/@latest | jq -r '.Version')
+          if [[ -z "$GOVULNCHECK" || "$GOVULNCHECK" == "null" ]]; then
+            echo "::error::Não foi possível resolver a última versão do govulncheck." >&2
+            exit 1
+          fi
+
+          {
+            echo "golangci=$GOLANGCI"
+            echo "gosec=$GOSEC"
+            echo "govulncheck=$GOVULNCHECK"
+          } >> "$GITHUB_OUTPUT"
+
+          # Garante que os binários instalados em GOPATH/bin fiquem no PATH
+          # dos próximos passos, mesmo em caso de cache hit (sem reinstalar).
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+          echo "Versões resolvidas → golangci-lint=$GOLANGCI | gosec=$GOSEC | govulncheck=$GOVULNCHECK"
+
+      - name: Cache Go security tools
+        id: cache_go_tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: go-sec-tools-${{ runner.os }}-go${{ steps.setup_go.outputs.go-version }}-gosec${{ steps.tool_versions.outputs.gosec }}-govulncheck${{ steps.tool_versions.outputs.govulncheck }}-golangci${{ steps.tool_versions.outputs.golangci }}
+
+      # Só instala quando a chave acima deu cache miss (ou seja, quando há uma
+      # versão nova de alguma ferramenta). Em cache hit, este passo é pulado.
+      - name: Install Go security tools
+        if: steps.cache_go_tools.outputs.cache-hit != 'true'
+        env:
+          GOLANGCI_LINT_VERSION: ${{ steps.tool_versions.outputs.golangci }}
+          GOSEC_VERSION: ${{ steps.tool_versions.outputs.gosec }}
+          GOVULNCHECK_VERSION: ${{ steps.tool_versions.outputs.govulncheck }}
+        run: |
+          set -euo pipefail
+          BIN="$(go env GOPATH)/bin"
+
+          # gosec e golangci-lint via script oficial de instalação: ele baixa
+          # o binário correto mesmo quando o caminho do módulo muda entre
+          # versões major (ex.: golangci-lint v1 → v2).
+          curl -sSfL https://raw.githubusercontent.com/securego/gosec/master/install.sh \
+            | sh -s -- -b "$BIN" "$GOSEC_VERSION"
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+            | sh -s -- -b "$BIN" "$GOLANGCI_LINT_VERSION"
+
+          # govulncheck tem caminho de módulo estável.
+          go install golang.org/x/vuln/cmd/govulncheck@"$GOVULNCHECK_VERSION"
+
+      - name: Go - lint
+        working-directory: ${{ matrix.project.path }}
+        run: golangci-lint run --timeout=5m
+
+      - name: Go - SAST
+        working-directory: ${{ matrix.project.path }}
+        run: gosec ./...
+
+      - name: Go - Dependencies vulnerabilities
+        working-directory: ${{ matrix.project.path }}
+        run: govulncheck ./...
+
+      - name: Go - build (security flags)
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          set -euo pipefail
+          mkdir -p bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -ldflags="-buildid=" \
+            -o "./bin/${{ matrix.project.name }}" \
+            ./...
+
+      - name: DAST - Run Microsoft Security DevOps (BinSkim)
+        uses: microsoft/security-devops-action@v1
+        with:
+          tools: binskim
+          break-on-detections: "true"
+        env:
+          GDN_BINSKIM_TARGET: ${{ matrix.project.path }}/bin/${{ matrix.project.name }}
+
+      - name: Go - tests with coverage
+        working-directory: ${{ matrix.project.path }}
+        run: |
+          go test ./... \
+            -race \
+            -coverprofile=coverage.out \
+            -covermode=atomic \
+            -timeout=120s
+
+      - name: Go - coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.project.name }}
+          path: ${{ matrix.project.path }}/coverage.out
+          retention-days: 7
