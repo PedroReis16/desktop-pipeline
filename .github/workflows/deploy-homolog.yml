@@ -177,6 +177,7 @@ jobs:
   # vazia, o job inteiro é pulado. Sem condicionais por step.
   # ─────────────────────────────────────────────
   quality_go:
+    name: Project quality golang
     needs: [prepare_build]
     if: needs.prepare_build.outputs.go_matrix != '[]'
     uses: ./.github/workflows/quality-golang.yml
@@ -188,6 +189,7 @@ jobs:
   # 3. QUALIDADE - NODE
   # ─────────────────────────────────────────────
   quality_node:
+    name: Project quality node/angular
     needs: [prepare_build]
     if: needs.prepare_build.outputs.node_matrix != '[]'
     uses: ./.github/workflows/quality-angular.yml
@@ -198,6 +200,7 @@ jobs:
   # 3. QUALIDADE - .NET
   # ─────────────────────────────────────────────
   quality_service_libraries:
+    name: Project quality C# / .NET Libraries
     needs: [prepare_build]
     if: needs.prepare_build.outputs.dotnet_libraries_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
@@ -206,6 +209,7 @@ jobs:
       run_integration_tests: false
 
   quality_services:
+    name: Project quality C# / .NET Services
     needs: [prepare_build]
     if: needs.prepare_build.outputs.dotnet_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
@@ -274,6 +278,7 @@ jobs:
   # 5. DEPLOY
   # ─────────────────────────────────────────────
   build_windows:
+    name: Deploy Windows version
     needs: [ci_gate]
     if: inputs.build_win == true
     permissions:
@@ -285,6 +290,7 @@ jobs:
       configuration: HomologWinX64
 
   build_linux:
+    name: Deploy Linux version
     needs: [ci_gate]
     if: inputs.build_linux == true
     permissions:

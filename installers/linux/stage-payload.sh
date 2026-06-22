@@ -11,7 +11,7 @@ PACKAGE_NAME="DesktopServices-${VERSION}-linux-x64"
 LAYOUT="${OUTPUT_LAYOUT}/${PACKAGE_NAME}"
 
 rm -rf "$LAYOUT"
-mkdir -p "${LAYOUT}/payload/services" "${LAYOUT}/payload/cmd" "${LAYOUT}/templates"
+mkdir -p "${LAYOUT}/payload/services" "${LAYOUT}/payload/cmd" "${LAYOUT}/templates" "${LAYOUT}/lib"
 
 cp "${ROOT}/services.conf" "$LAYOUT/"
 cp "${ROOT}/templates/systemd.service.template" "${LAYOUT}/templates/"

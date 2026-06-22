@@ -276,6 +276,7 @@ jobs:
   # vazia, o job inteiro é pulado. Sem condicionais por step.
   # ─────────────────────────────────────────────
   quality_go:
+    name: Project quality golang
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
     uses: ./.github/workflows/quality-golang.yml
@@ -287,6 +288,7 @@ jobs:
   # 4. QUALIDADE — NODE / ANGULAR
   # ─────────────────────────────────────────────
   quality_node:
+    name: Project quality node/angular
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
     uses: ./.github/workflows/quality-angular.yml
@@ -298,6 +300,7 @@ jobs:
   # 4. QUALIDADE — C# / .NET
   # ─────────────────────────────────────────────
   quality_dotnet:
+    name: Project quality C# / .NET
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
