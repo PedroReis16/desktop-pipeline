@@ -263,6 +263,9 @@ jobs:
   build_windows:
     needs: [ci_gate]
     if: inputs.build_win == true
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/build-windows.yml
     with:
       version: ${{ inputs.version }}
