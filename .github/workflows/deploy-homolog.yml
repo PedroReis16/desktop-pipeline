@@ -242,7 +242,7 @@ jobs:
     uses: ./.github/workflows/build-windows.yml
     with:
       version: ${{ inputs.version }}
-      configuration: ${{ vars.DOTNET_CONFIGURATION }}
+      configuration: ${{ env.DOTNET_CONFIGURATION }}
 
   build_linux:
     needs: [ci_gate]
@@ -253,7 +253,7 @@ jobs:
     uses: ./.github/workflows/build-linux.yml
     with:
       version: ${{ inputs.version }}
-      configuration: ${{ vars.DOTNET_LINUX_CONFIGURATION }}
+      configuration: ${{ env.DOTNET_LINUX_CONFIGURATION }}
 
   # ─────────────────────────────────────────────
   # 6. RELEASE — publica os bundles como GitHub Release
