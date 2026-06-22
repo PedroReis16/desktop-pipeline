@@ -6,6 +6,10 @@ on:
       node_matrix:
         required: true
         type: string
+      run_integration_tests:
+        default: false
+        description: "Run integration tests"
+        type: boolean
 
 jobs:
   node:

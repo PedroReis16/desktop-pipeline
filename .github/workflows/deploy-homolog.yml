@@ -1,100 +1,347 @@
 name: Deploy Homolog
 
-# ─────────────────────────────────────────────
-# LEMBRETE — BinSkim no projeto Go (desktop-cmd)
-# A CI (continuos-integration.yml) é só validação e NÃO publica artefato,
-# por isso o BinSkim do Go não entra lá. É AQUI (deploy) que o executável
-# final é gerado — então é AQUI que o BinSkim deve rodar sobre o binário Go.
-#
-# Estratégia de DOIS builds (decidida para o desktop-cmd):
-#   1) Build de VALIDAÇÃO (com símbolos) — só para o BinSkim analisar:
-#        go build -buildmode=pie -trimpath \
-#          -ldflags="-buildid=" \
-#          -o ./bin/desktop-cmd-binskim ./...
-#      → GDN_BINSKIM_TARGET aponta para esse binário.
-#
-#   2) Build de PRODUÇÃO (stripado) — o que de fato é distribuído:
-#        go build -buildmode=pie -trimpath \
-#          -ldflags="-s -w -buildid=" \
-#          -o ./bin/desktop-cmd ./...
-#
-# Por que dois builds: -s -w removem tabela de símbolos e DWARF, o que reduz
-# a cobertura de regras do BinSkim em ELF. O binário de validação mantém os
-# símbolos (análise completa) sem inflar o binário de produção.
-#
-# Step do BinSkim (após o build de validação):
-#   - name: Run Microsoft Security DevOps (BinSkim)
-#     uses: microsoft/security-devops-action@v1
-#     with:
-#       tools: binskim
-#       break-on-detections: 'true'
-#     env:
-#       GDN_BINSKIM_TARGET: desktop-cmd/bin/desktop-cmd-binskim
-#
-# Atenção:
-#   • A MSDO action é uma CLI .NET; se faltar runtime, adicionar
-#     actions/setup-dotnet@v4 antes do step.
-#   • Regras BAxxxx são voltadas a C/C++ (MSVC/GCC); em binários Go várias
-#     podem vir como notApplicable ou gerar ruído. Calibrar via .gdnconfig
-#     ou suppressões para o job não quebrar por regra inaplicável.
-# ─────────────────────────────────────────────
-
-# ─────────────────────────────────────────────
-# LEMBRETE — BinSkim no projeto Angular/Electron (desktop-ui)
-# Na CI o "npm run build" gera só assets web (JS/HTML/CSS em dist/), que NÃO
-# são binários PE/ELF — o BinSkim não tem o que analisar lá. Os binários
-# nativos (o .exe do Electron, DLLs e addons .node) só existem APÓS o
-# empacotamento (electron-builder/forge), que é a etapa do .MSI feita AQUI
-# no deploy. Logo, o BinSkim do desktop-ui pertence a esta pipeline.
-#
-# Requisitos:
-#   • O .MSI exige runner Windows → usar runs-on: windows-latest no job de
-#     empacotamento (não dá para gerar MSI no ubuntu).
-#   • Empacotar o app (ex.: npm run build && npx electron-builder --win msi).
-#
-# Alvo do BinSkim: os PEs nativos, NÃO o .asar (que é JS) nem o .msi em si.
-# Apontar para os .exe/.dll desempacotados (ex.: a pasta win-unpacked do
-# electron-builder) antes/depois de gerar o instalador:
-#   - name: Run Microsoft Security DevOps (BinSkim)
-#     uses: microsoft/security-devops-action@v1
-#     with:
-#       tools: binskim
-#       break-on-detections: 'true'
-#     env:
-#       GDN_BINSKIM_TARGET: desktop-ui/release/win-unpacked/*.exe
-#       GDN_BINSKIM_RECURSE: 'true'
-#
-# Complemento (DAST específico de Electron): considerar o Electronegativity
-# (Doyensec) para checagens de segurança próprias do Electron — nodeIntegration,
-# contextIsolation, etc. — que o BinSkim não cobre.
-# ─────────────────────────────────────────────
-
 on:
-    workflow_dispatch:
-        inputs:
-            branch:
-                description: 'Branch to deploy'
-                required: true
-                default: 'homolog'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy"
+        required: true
+        type: string
+      build_linux:
+        { description: "Build Linux (x86_64)", type: boolean, default: true }
+      build_win:
+        { description: "Build Windows (x86_64)", type: boolean, default: true }
+      build_macos:
+        { description: "Build MacOS (arm64)", type: boolean, default: true }
 
 permissions:
-    contents: read
-    pull-requests: read
+  contents: read
+  pull-requests: read
 
 jobs:
-    # ─────────────────────────────────────────────
-    # 1. DETECÇÃO DE MUDANÇAS
-    # Constrói uma matriz dinâmica com apenas os projetos
-    # que tiveram arquivos alterados nesta PR.
-    # ─────────────────────────────────────────────
-    detect-changes:
-        name: Detect changed projects
-        runs-on: ubuntu-latest
-        outputs:
-            projects_matrix: ${{ steps.compute_matrix.outputs.projects_matrix }}
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                fetch-depth: 0
+  # ─────────────────────────────────────────────
+  # 1. PREPARE BUILD ENVIRONMENT
+  # Builds the projects matrix for the build environment.
+  # The matrix is used to build the projects for the build environment.
+  # ─────────────────────────────────────────────
+  prepare_build:
+    name: Prepare build environment
+    runs-on: ubuntu-latest
+    outputs:
+      go_matrix: ${{ steps.compute_matrix.outputs.go_matrix }}
+      node_matrix: ${{ steps.compute_matrix.outputs.node_matrix }}
+      dotnet_matrix: ${{ steps.compute_matrix.outputs.dotnet_matrix }}
+      dotnet_libraries_matrix: ${{ steps.compute_matrix.outputs.dotnet_libraries_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-                
+      - name: Build projects matrix
+        id: compute_matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read -r -d '' DOTNET_LIBRARIES <<'EOF' || true
+          [
+            {
+              "name": "Desktop.Database",
+              "path": "workerservices/Libraries/Desktop.Database",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.Database.UnitTests"
+            },
+            {
+              "name": "Desktop.Models",
+              "path": "workerservices/Libraries/Desktop.Models",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.Models.UnitTests"
+            }
+          ]
+          EOF
+          DOTNET_LIBRARIES_MATRIX=$(jq -c <<< "$DOTNET_LIBRARIES")
+          {
+            echo "dotnet_libraries_matrix=$DOTNET_LIBRARIES_MATRIX"
+          } >> "$GITHUB_OUTPUT"
+
+          read -r -d '' PROJECTS <<'EOF' || true
+          [
+            {
+              "name": "desktop-ui",
+              "type": "node",
+              "path": "desktop-ui"
+            },
+            {
+              "name": "desktop-cmd",
+              "type": "go",
+              "path": "desktop-cmd",
+              "go_mod": "desktop-cmd/go.mod",
+              "go_sum": "desktop-cmd/go.sum"
+            },
+            {
+              "name": "Desktop.Export",
+              "type": "dotnet",
+              "path": "workerservices/Desktop.Export",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.Export.UnitTests",
+              "integration_tests": "workerservices/Tests/Integration/Desktop.Export.IntegrationTests"
+            },
+            {
+              "name": "Desktop.Import",
+              "type": "dotnet",
+              "path": "workerservices/Desktop.Import",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.Import.UnitTests",
+              "integration_tests": "workerservices/Tests/Integration/Desktop.Import.IntegrationTests"
+            },
+            {
+              "name": "Desktop.Instance",
+              "type": "dotnet",
+              "path": "workerservices/Desktop.Instance",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.Instance.UnitTests",
+              "integration_tests": "workerservices/Tests/Integration/Desktop.Instance.IntegrationTests"
+            },
+            {
+              "name": "Desktop.Integration",
+              "type": "dotnet",
+              "path": "workerservices/Desktop.Integration",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.Integration.UnitTests",
+              "integration_tests": "workerservices/Tests/Integration/Desktop.Integration.IntegrationTests"
+            },
+            {
+              "name": "Desktop.InterfaceAPI",
+              "type": "dotnet",
+              "path": "workerservices/Desktop.InterfaceAPI",
+              "unit_tests": "workerservices/Tests/Unit/Desktop.InterfaceAPI.UnitTests",
+              "integration_tests": "workerservices/Tests/Integration/Desktop.InterfaceAPI.IntegrationTests"
+            },
+          ]
+          EOF
+          GO_MATRIX=$(jq -c '[.[] | select(.type == "go")]'    <<< "$PROJECTS")
+          NODE_MATRIX=$(jq -c '[.[] | select(.type == "node")]' <<< "$PROJECTS")
+          DOTNET_MATRIX=$(jq -c '[.[] | select(.type == "dotnet")]' <<< "$PROJECTS")
+          {
+            echo "go_matrix=$GO_MATRIX"
+            echo "node_matrix=$NODE_MATRIX"
+            echo "dotnet_matrix=$DOTNET_MATRIX"
+          } >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
+  # 2. SCAN DE SEGREDOS
+  # Roda sempre, independente de quais projetos
+  # foram alterados — segredos podem aparecer em
+  # qualquer arquivo do repositório.
+  # ─────────────────────────────────────────────
+  secrets_scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────
+  # 3. QUALIDADE - GO
+  # Um job por linguagem. A matriz vem só com os projetos Go; se estiver
+  # vazia, o job inteiro é pulado. Sem condicionais por step.
+  # ─────────────────────────────────────────────
+  quality_go:
+    needs: [prepare_build, secrets_scan]
+    if: needs.prepare_build.outputs.go_matrix != '[]'
+    uses: ./.github/workflows/quality-golang.yml
+    with:
+      go_matrix: ${{ needs.prepare_build.outputs.go_matrix }}
+      run_integration_tests: false
+
+  # ─────────────────────────────────────────────
+  # 3. QUALIDADE - NODE
+  # ─────────────────────────────────────────────
+  quality_node:
+    needs: [prepare_build, secrets_scan]
+    if: needs.prepare_build.outputs.node_matrix != '[]'
+    uses: ./.github/workflows/quality-node.yml
+    with:
+      node_matrix: ${{ needs.prepare_build.outputs.node_matrix }}
+
+  # ─────────────────────────────────────────────
+  # 3. QUALIDADE - .NET
+  # ─────────────────────────────────────────────
+  quality_service_libraries:
+    needs: [prepare_build, secrets_scan]
+    if: needs.prepare_build.outputs.dotnet_libraries_matrix != '[]'
+    uses: ./.github/workflows/quality-csharp.yml
+    with:
+      dotnet_libraries_matrix: ${{ needs.prepare_build.outputs.dotnet_libraries_matrix }}
+      run_integration_tests: false
+
+  quality_services:
+    needs: [prepare_build, secrets_scan, quality_service_libraries]
+    if: needs.prepare_build.outputs.dotnet_matrix != '[]'
+    uses: ./.github/workflows/quality-csharp.yml
+    with:
+      dotnet_matrix: ${{ needs.prepare_build.outputs.dotnet_matrix }}
+      run_integration_tests: true
+
+  # ─────────────────────────────────────────────
+  # 4. CI GATE
+  # Job único que consolida o resultado de todos
+  # os outros. Configure APENAS este job como
+  # "required status check" no branch protection.
+  # ─────────────────────────────────────────────
+  ci_gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs:
+      [
+        secrets_scan,
+        quality_go,
+        quality_node,
+        quality_service_libraries,
+        quality_services,
+      ]
+    if: always()
+    steps:
+      - name: Check all results
+        run: |
+          set -euo pipefail
+
+          SECRETS="${{ needs.secrets_scan.result }}"
+          GO="${{ needs.quality_go.result }}"
+          NODE="${{ needs.quality_node.result }}"
+          DOTNET_LIBRARIES="${{ needs.quality_service_libraries.result }}"
+          DOTNET_SERVICES="${{ needs.quality_services.result }}"
+
+          echo "secrets_scan:         $SECRETS"
+          echo "quality_go:           $GO"
+          echo "quality_node:         $NODE"
+          echo "quality_service_libraries: $DOTNET_LIBRARIES"
+          echo "quality_services:       $DOTNET_SERVICES"
+
+          FAIL=0
+
+          # Todos os jobs obrigatórios (rodam sempre)
+          if [[ "$SECRETS" != "success" ]]; then
+            echo "::error::Secrets scan falhou ou não completou com sucesso."
+            FAIL=1
+          fi
+
+          if [[ "$AUTHORS" != "success" ]]; then
+            echo "::error::Commit authors check falhou ou não completou com sucesso."
+            FAIL=1
+          fi
+
+          # Jobs condicionais: só falha se rodaram E falharam.
+          # Se for skipped, não é obrigatório para esta PR.
+          if [[ "$GO" != "skipped" && "$GO" != "success" ]]; then
+            echo "::error::A validação de qualidade Go falhou."
+            FAIL=1
+          fi
+          if [[ "$NODE" != "skipped" && "$NODE" != "success" ]]; then
+            echo "::error::A validação de qualidade Node falhou."
+            FAIL=1
+          fi
+          if [[ "$DOTNET_LIBRARIES" != "skipped" && "$DOTNET_LIBRARIES" != "success" ]]; then
+            echo "::error::A validação de qualidade .NET Libraries falhou."
+            FAIL=1
+          fi
+          if [[ "$DOTNET_SERVICES" != "skipped" && "$DOTNET_SERVICES" != "success" ]]; then
+            echo "::error::A validação de qualidade .NET Services falhou."
+            FAIL=1
+          fi
+
+          if [[ "$FAIL" -ne 0 ]]; then
+            echo "::error::Um ou mais jobs obrigatórios falharam."
+            exit 1
+          fi
+
+          echo "CI concluído com sucesso"
+
+  # ─────────────────────────────────────────────
+  # 5. DEPLOY
+  # ─────────────────────────────────────────────
+  build_windows:
+    needs: [ci_gate]
+    if: inputs.build_win == true
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      version: ${{ inputs.version }}
+      configuration: HomologWinX64
+
+  build_linux:
+    needs: [ci_gate]
+    if: inputs.build_linux == true
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      version: ${{ inputs.version }}
+
+  # ─────────────────────────────────────────────
+  # 6. RELEASE — publica os bundles como GitHub Release
+  # Artefatos gerados em workflows reutilizáveis ficam
+  # disponíveis na mesma workflow run para download aqui.
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Publish homolog release
+    needs: [build_windows, build_linux]
+    if: |
+      !cancelled() &&
+      (needs.build_windows.result == 'success' || needs.build_linux.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows bundle
+        if: needs.build_windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: DesktopServices-HomologWinX64
+          path: release-assets/windows
+
+      - name: Download Linux bundle
+        if: needs.build_linux.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: DesktopServices-HomologLinuxX64
+          path: release-assets/linux
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          TAG: homolog-${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+
+          mapfile -t files < <(find release-assets -type f)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::Nenhum artefato de build encontrado para publicar."
+            exit 1
+          fi
+
+          notes="## Homolog ${VERSION}
+
+          Publicação de homologação — [workflow #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+
+          if [[ "${{ needs.build_windows.result }}" == "success" ]]; then
+            notes+=$'\n\n- **Windows x64:** `DesktopServices.exe`'
+          fi
+          if [[ "${{ needs.build_linux.result }}" == "success" ]]; then
+            notes+=$'\n- **Linux x64:** bundle Linux'
+          fi
+
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG já existe — atualizando assets."
+            gh release upload "$TAG" "${files[@]}" --repo "${{ github.repository }}" --clobber
+            gh release edit "$TAG" --repo "${{ github.repository }}" --prerelease --notes "$notes"
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --repo "${{ github.repository }}" \
+              --title "Homolog $VERSION" \
+              --prerelease \
+              --notes "$notes"
+          fi
+
+          echo "Release publicada: ${GITHUB_SERVER_URL}/${{ github.repository }}/releases/tag/$TAG"

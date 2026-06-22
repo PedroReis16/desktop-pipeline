@@ -6,6 +6,10 @@ on:
       dotnet_matrix:
         required: true
         type: string
+      run_integration_tests:
+        default: false
+        description: "Run integration tests"
+        type: boolean
 
 jobs:
   csharp:
@@ -135,7 +139,7 @@ jobs:
         uses: microsoft/security-devops-action@v1
         with:
           tools: binskim
-          break-on-detections: 'true'
+          break-on-detections: "true"
         env:
           GDN_BINSKIM_TARGET: ${{ steps.binskim_target.outputs.path }}
 
@@ -149,3 +153,7 @@ jobs:
           path: ${{ matrix.project.unit_tests }}/TestResults/**/coverage.cobertura.xml
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: .NET - integration tests
+        if: inputs.run_integration_tests == true
+        run: dotnet test "${{ matrix.project.integration_tests }}"

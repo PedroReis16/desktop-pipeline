@@ -1,0 +1,402 @@
+name: Build Windows X64
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      configuration:
+        required: true
+        type: string
+
+env:
+  DOTNET_CONFIGURATION: ${{ inputs.configuration }}
+  DOTNET_PLATFORM: x64
+  DOTNET_RID: win-x64
+
+permissions:
+  contents: read
+  actions: write # necessário para remover caches ao final da run
+
+jobs:
+  # ────────────────────────────────────────────────────
+  # 1. MATRIZ DE BUILD (declarada aqui, só publish/WiX)
+  # ────────────────────────────────────────────────────
+  prepare_build:
+    name: Prepare Windows build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.matrix.outputs.build_matrix }}
+    steps:
+      - id: matrix
+        shell: bash
+        run: |
+
+          set -euo pipefail
+          read -r -d '' BUILD_MATRIX <<'EOF' || true
+          [
+            {
+              "id": "desktop-export",
+              "name": "Desktop.Export",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Export/Desktop.Export.csproj",
+              "publish_profile": "./workerservices/Desktop.Export/Properties/PublishProfiles/win-x64.pubxml",
+              "wix_project": "installers/windows/Desktop.Export.Installer/Desktop.Export.Installer.wixproj",
+              "msi_dir": "installers/windows/Desktop.Export.Installer/bin/x64",
+              "msi_name": "Desktop.Export.Installer.msi"
+            },
+            {
+              "id": "desktop-import",
+              "name": "Desktop.Import",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Import/Desktop.Import.csproj",
+              "publish_profile": "./workerservices/Desktop.Import/Properties/PublishProfiles/win-x64.pubxml",
+              "wix_project": "installers/windows/Desktop.Import.Installer/Desktop.Import.Installer.wixproj",
+              "msi_dir": "installers/windows/Desktop.Import.Installer/bin/x64",
+              "msi_name": "Desktop.Import.Installer.msi"
+            },
+            {
+              "id": "desktop-instance",
+              "name": "Desktop.Instance",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Instance/Desktop.Instance.csproj",
+              "publish_profile": "./workerservices/Desktop.Instance/Properties/PublishProfiles/win-x64.pubxml",
+              "wix_project": "installers/windows/Desktop.Instance.Installer/Desktop.Instance.Installer.wixproj",
+              "msi_dir": "installers/windows/Desktop.Instance.Installer/bin/x64",
+              "msi_name": "Desktop.Instance.Installer.msi"
+            },
+            {
+              "id": "desktop-integration",
+              "name": "Desktop.Integration",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Integration/Desktop.Integration.csproj",
+              "publish_profile": "./workerservices/Desktop.Integration/Properties/PublishProfiles/win-x64.pubxml",
+              "wix_project": "installers/windows/Desktop.Integration.Installer/Desktop.Integration.Installer.wixproj",
+              "msi_dir": "installers/windows/Desktop.Integration.Installer/bin/x64",
+              "msi_name": "Desktop.Integration.Installer.msi"
+            },
+            {
+              "id": "desktop-interfaceapi",
+              "name": "Desktop.InterfaceAPI",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.InterfaceAPI/Desktop.InterfaceAPI.csproj",
+              "publish_profile": "./workerservices/Desktop.InterfaceAPI/Properties/PublishProfiles/win-x64.pubxml",
+              "wix_project": "installers/windows/Desktop.InterfaceAPI.Installer/Desktop.InterfaceAPI.Installer.wixproj",
+              "msi_dir": "installers/windows/Desktop.InterfaceAPI.Installer/bin/x64",
+              "msi_name": "Desktop.InterfaceAPI.Installer.msi"
+            },
+            {
+              "id": "desktop-cmd",
+              "name": "desktop-cmd",
+              "type": "go",
+              "workdir": "desktop-cmd",
+              "go_target": "./cmd/desktop",
+              "exe_output": "desktop-cmd/bin/desktop.exe",
+              "wix_project": "installers/windows/Desktop.Cmd.Installer/Desktop.Cmd.wixproj",
+              "msi_dir": "installers/windows/Desktop.Cmd.Installer/bin/x64",
+              "msi_name": "Desktop.Cmd.Installer.msi"
+            },
+            {
+              "id": "desktop-ui",
+              "name": "desktop-ui",
+              "type": "node",
+              "workdir": "desktop-ui",
+              "msi_name": "Desktop.Desktop.msi"
+            }
+          ]
+          EOF
+          echo "build_matrix=$(jq -c <<< "$BUILD_MATRIX")" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
+  # 2. BOOTSTRAP .NET
+  # ─────────────────────────────────────────────
+  dotnet_bootstrap:
+    name: Bootstrap .NET solution
+    needs: prepare_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Clean + restore + build DesktopServices.slnx
+        shell: pwsh
+        run: |
+          $cfg = $env:DOTNET_CONFIGURATION
+          dotnet clean ./workerservices/DesktopServices.slnx --configuration $cfg
+          dotnet restore ./workerservices/DesktopServices.slnx `
+            -r $env:DOTNET_RID `
+            /p:Configuration=$cfg /p:Platform=$env:DOTNET_PLATFORM /p:PublishReadyToRun=true
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build ./workerservices/DesktopServices.slnx `
+            --configuration $cfg /p:Platform=$env:DOTNET_PLATFORM --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cache .NET bootstrap (obj + nuget)
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            workerservices/**/obj
+          key: dotnet-bootstrap-${{ github.run_id }}
+
+  # ─────────────────────────────────────────────
+  # 2b. INSTALLER SHARED (build único — reutilizado por todos os WiX)
+  # ─────────────────────────────────────────────
+  installer_shared_build:
+    name: Build InstallerShared
+    needs: prepare_build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore + build InstallerShared
+        shell: pwsh
+        run: |
+          dotnet restore ./installers/windows/Desktop.InstallerShared/Desktop.InstallerShared.wixproj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build ./installers/windows/Desktop.InstallerShared/ `
+            --configuration $env:DOTNET_CONFIGURATION /p:Platform=$env:DOTNET_PLATFORM
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Cache InstallerShared build output
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            installers/windows/Desktop.InstallerShared/bin
+            installers/windows/Desktop.InstallerShared/obj
+          key: installer-shared-${{ github.run_id }}
+
+  # ─────────────────────────────────────────────
+  # 3. BUILD SERVICES
+  # ─────────────────────────────────────────────
+  build_project:
+    name: "${{ matrix.project.name }}"
+    needs: [prepare_build, dotnet_bootstrap, installer_shared_build]
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        project: ${{ fromJSON(needs.prepare_build.outputs.build_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore .NET bootstrap cache
+        if: matrix.project.type == 'dotnet'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            workerservices/**/obj
+          key: dotnet-bootstrap-${{ github.run_id }}
+          fail-on-cache-miss: true
+
+      - name: Publish .NET service
+        if: matrix.project.type == 'dotnet'
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $cfg = $env:DOTNET_CONFIGURATION
+          dotnet publish "${{ matrix.project.csproj }}" `
+            /p:PublishProfile=${{ matrix.project.publish_profile }} `
+            --configuration $cfg /p:Platform=$env:DOTNET_PLATFORM `
+            /p:Version=$env:VERSION --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/setup-go@v5
+        if: matrix.project.type == 'go'
+        with:
+          go-version-file: desktop-cmd/go.mod
+          cache-dependency-path: desktop-cmd/go.sum
+      - name: Build desktop-cmd
+        if: matrix.project.type == 'go'
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        working-directory: ${{ matrix.project.workdir }}
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -ldflags "-s -w -X main.version=$env:VERSION" `
+            -o ../${{ matrix.project.exe_output }} ${{ matrix.project.go_target }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/setup-node@v4
+        if: matrix.project.type == 'node'
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: desktop-ui/package-lock.json
+      - name: Build desktop-ui MSI
+        if: matrix.project.type == 'node'
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        working-directory: ${{ matrix.project.workdir }}
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:electron
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx electron-builder build --win --config.extraMetadata.version=$env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "dist_electron/${{ matrix.project.msi_name }}")) {
+            throw "MSI nao encontrado: dist_electron/${{ matrix.project.msi_name }}"
+          }
+
+      - name: Restore InstallerShared cache
+        if: matrix.project.type != 'node'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            installers/windows/Desktop.InstallerShared/bin
+            installers/windows/Desktop.InstallerShared/obj
+          key: installer-shared-${{ github.run_id }}
+          fail-on-cache-miss: true
+
+      - name: Restore + build MSI
+        if: matrix.project.type != 'node'
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          $wix = "${{ matrix.project.wix_project }}"
+          dotnet restore $wix /p:VersionNumber=$env:VERSION /p:Version=$env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build $wix `
+            --configuration $env:DOTNET_CONFIGURATION /p:Platform=$env:DOTNET_PLATFORM `
+            /p:VersionNumber=$env:VERSION /p:Version=$env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload MSI artifact
+        if: matrix.project.type != 'node'
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-${{ matrix.project.id }}
+          path: ${{ matrix.project.msi_dir }}/${{ env.DOTNET_CONFIGURATION }}/${{ matrix.project.msi_name }}
+      - name: Upload desktop-ui MSI artifact
+        if: matrix.project.type == 'node'
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-${{ matrix.project.id }}
+          path: desktop-ui/dist_electron/${{ matrix.project.msi_name }}
+
+  # ─────────────────────────────────────────────
+  # 4. BUNDLE FINAL
+  # ─────────────────────────────────────────────
+  package_bundle:
+    name: Package DesktopServices bundle
+    needs: build_project
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore InstallerShared cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            installers/windows/Desktop.InstallerShared/bin
+            installers/windows/Desktop.InstallerShared/obj
+          key: installer-shared-${{ github.run_id }}
+          fail-on-cache-miss: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Layout MSIs for bundle
+        shell: pwsh
+        env:
+          CFG: ${{ env.DOTNET_CONFIGURATION }}
+        run: |
+          $layout = @{
+            "msi-desktop-export"       = "installers/windows/Desktop.Export.Installer/bin/x64/$env:CFG"
+            "msi-desktop-import"       = "installers/windows/Desktop.Import.Installer/bin/x64/$env:CFG"
+            "msi-desktop-instance"     = "installers/windows/Desktop.Instance.Installer/bin/x64/$env:CFG"
+            "msi-desktop-integration"  = "installers/windows/Desktop.Integration.Installer/bin/x64/$env:CFG"
+            "msi-desktop-interfaceapi" = "installers/windows/Desktop.InterfaceAPI.Installer/bin/x64/$env:CFG"
+            "msi-desktop-cmd"          = "installers/windows/Desktop.Cmd.Installer/bin/x64/$env:CFG"
+          }
+          foreach ($artifact in $layout.Keys) {
+            $dest = $layout[$artifact]
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            Copy-Item "artifacts/$artifact/*" $dest -Force
+          }
+          $bundleDir = "installers/windows/Desktop.ServicesInstaller/bundle-payloads"
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+          Copy-Item "artifacts/msi-desktop-ui/Desktop.Desktop.msi" `
+            "$bundleDir/Desktop.Desktop.msi" -Force
+      - name: Restore + build Desktop.ServicesInstaller
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          dotnet restore ./installers/windows/Desktop.ServicesInstaller/ `
+            /p:VersionNumber=$env:VERSION /p:Version=$env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build ./installers/windows/Desktop.ServicesInstaller/ `
+            --configuration $env:DOTNET_CONFIGURATION /p:Platform=$env:DOTNET_PLATFORM `
+            /p:VersionNumber=$env:VERSION /p:Version=$env:VERSION
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopServices-${{ env.DOTNET_CONFIGURATION }}
+          path: installers/windows/Desktop.ServicesInstaller/bin/x64/${{ env.DOTNET_CONFIGURATION }}/DesktopServices.exe
+
+  # ─────────────────────────────────────────────
+  # 5. LIMPEZA — remove caches desta execução (sucesso ou falha)
+  # ─────────────────────────────────────────────
+  cleanup_caches:
+    name: Cleanup workflow caches
+    needs:
+      - dotnet_bootstrap
+      - installer_shared_build
+      - build_project
+      - package_bundle
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete run-scoped caches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const keys = [
+              `dotnet-bootstrap-${context.runId}`,
+              `installer-shared-${context.runId}`,
+            ];
+
+            for (const key of keys) {
+              const { data } = await github.rest.actions.getActionsCacheList({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                key,
+              });
+
+              if (data.actions_caches.length === 0) {
+                core.info(`Nenhum cache encontrado para a chave: ${key}`);
+                continue;
+              }
+
+              for (const cache of data.actions_caches) {
+                core.info(`Removendo cache ${cache.key} (id=${cache.id})`);
+                await github.rest.actions.deleteActionsCacheById({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  cache_id: cache.id,
+                });
+              }
+            }

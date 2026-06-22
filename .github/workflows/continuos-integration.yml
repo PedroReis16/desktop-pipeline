@@ -278,9 +278,10 @@ jobs:
   quality_go:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
-    uses: ./.github/workflows/ci-golang.yml
+    uses: ./.github/workflows/quality-golang.yml
     with:
       go_matrix: ${{ needs.detect-changes.outputs.go_matrix }}
+      run_integration_tests: false
 
   # ─────────────────────────────────────────────
   # 4. QUALIDADE — NODE / ANGULAR
@@ -288,9 +289,10 @@ jobs:
   quality_node:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
-    uses: ./.github/workflows/ci-angular.yml
+    uses: ./.github/workflows/quality-angular.yml
     with:
       node_matrix: ${{ needs.detect-changes.outputs.node_matrix }}
+      run_integration_tests: false
 
   # ─────────────────────────────────────────────
   # 4. QUALIDADE — C# / .NET
@@ -298,9 +300,10 @@ jobs:
   quality_dotnet:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
-    uses: ./.github/workflows/ci-csharp.yml
+    uses: ./.github/workflows/quality-csharp.yml
     with:
       dotnet_matrix: ${{ needs.detect-changes.outputs.dotnet_matrix }}
+      run_integration_tests: false
 
   # ─────────────────────────────────────────────
   # 5. CI GATE

@@ -1,0 +1,29 @@
+name: Build Linux X64
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      configuration:
+        required: true
+        type: string
+
+env:
+  DOTNET_CONFIGURATION: ${{ inputs.configuration }}
+  DOTNET_PLATFORM: x64
+  DOTNET_RID: linux-x64
+
+jobs:
+  build:
+    name: Build Linux X64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build
+        run: |
+          set -euo pipefail
+          echo "Building Linux X64"
+          echo "Version: ${{ inputs.version }}"
