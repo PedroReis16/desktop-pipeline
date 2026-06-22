@@ -280,7 +280,7 @@ jobs:
   quality_go:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
-    uses: ./.github/workflows/continuos-integration/ci-golang.yml
+    uses: ./.github/workflows/ci-golang.yml
     with:
       go_matrix: ${{ needs.detect-changes.outputs.go_matrix }}
 
@@ -290,9 +290,9 @@ jobs:
   quality_node:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
-    uses: ./.github/workflows/continuos-integration/ci-angular.yml
+    uses: ./.github/workflows/ci-angular.yml
     with:
-      angular_matrix: ${{ needs.detect-changes.outputs.node_matrix }}
+      node_matrix: ${{ needs.detect-changes.outputs.node_matrix }}
 
   # ─────────────────────────────────────────────
   # 4. QUALIDADE — C# / .NET
@@ -300,7 +300,7 @@ jobs:
   quality_dotnet:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
-    uses: ./.github/workflows/continuos-integration/ci-csharp.yml
+    uses: ./.github/workflows/ci-csharp.yml
     with:
       dotnet_matrix: ${{ needs.detect-changes.outputs.dotnet_matrix }}
 
@@ -355,15 +355,15 @@ jobs:
           # Jobs condicionais: só falha se rodaram E falharam.
           # Se for skipped, não é obrigatório para esta PR.
           if [[ "$GO" != "skipped" && "$GO" != "success" ]]; then
-            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            echo "::error::A validação de qualidade Go falhou."
             FAIL=1
           fi
           if [[ "$NODE" != "skipped" && "$NODE" != "success" ]]; then
-            echo "::error::A validação qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            echo "::error::A validação de qualidade Node falhou."
             FAIL=1
           fi
           if [[ "$DOTNET" != "skipped" && "$DOTNET" != "success" ]]; then
-            echo "::error::A validação de qualidade referente ao projeto ${{ matrix.project.name }} falhou."
+            echo "::error::A validação de qualidade .NET falhou."
             FAIL=1
           fi
 
