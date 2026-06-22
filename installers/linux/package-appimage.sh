@@ -90,6 +90,39 @@ esac
 EOF
 chmod 0755 "${APPDIR}/AppRun"
 
+cat > "${APPDIR}/desktopservices.desktop" <<'EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Desktop Vigia
+GenericName=Desktop Services
+Comment=Vigia Desktop Services - UI, CLI e servicos em background
+Exec=AppRun --ui %F
+Icon=desktopservices
+Categories=Office;Network;
+Terminal=false
+EOF
+
+# appimagetool exige Icon=; reutiliza icone do Electron quando disponivel.
+for icon_candidate in \
+  "${APPDIR}/payload/ui/desktop-ui.png" \
+  "${APPDIR}/payload/ui/DesktopUI.png" \
+  "${APPDIR}/payload/ui/resources/app.png" \
+  "${APPDIR}/payload/ui/resources/icon.png" \
+  "${ROOT}/../../desktop-ui/build/icon.png"; do
+  if [[ -f "$icon_candidate" ]]; then
+    install -m 0644 "$icon_candidate" "${APPDIR}/desktopservices.png"
+    break
+  fi
+done
+
+if [[ ! -f "${APPDIR}/desktopservices.png" ]]; then
+  # PNG 1x1 minimo — fallback para appimagetool quando o Electron nao exporta icone.
+  base64 -d > "${APPDIR}/desktopservices.png" <<'ICON'
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+ICON
+fi
+
 if [[ ! -x "$APPIMAGETOOL" ]]; then
   echo "Baixando appimagetool..."
   curl -fsSL \

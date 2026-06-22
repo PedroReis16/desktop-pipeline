@@ -35,6 +35,7 @@ jobs:
       node_matrix: ${{ steps.compute_matrix.outputs.node_matrix }}
       dotnet_matrix: ${{ steps.compute_matrix.outputs.dotnet_matrix }}
       dotnet_libraries_matrix: ${{ steps.compute_matrix.outputs.dotnet_libraries_matrix }}
+      quality_scope: ${{ steps.compute_matrix.outputs.quality_scope }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -59,6 +60,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Validate version, changelog and tags
+        id: validate
         env:
           VERSION: ${{ inputs.version }}
         shell: bash
@@ -92,18 +94,139 @@ jobs:
 
           HOM_TAG="hom-${VERSION}"
           if git rev-parse "refs/tags/${HOM_TAG}" >/dev/null 2>&1; then
+            echo "hom_tag_exists=true" >> "$GITHUB_OUTPUT"
             echo "Tag de homologação ${HOM_TAG} já existe — será atualizada ao final do processo."
+            echo "Alterações em código de projeto serão detectadas desde esta tag para validação incremental."
           else
+            echo "hom_tag_exists=false" >> "$GITHUB_OUTPUT"
             echo "Tag de homologação ${HOM_TAG} ainda não existe — será criada ao final do processo."
+            echo "Validação completa de todos os projetos será executada."
           fi
+
+      - name: Detect changed paths
+        id: filter
+        if: steps.validate.outputs.hom_tag_exists == 'true'
+        uses: dorny/paths-filter@v3
+        with:
+          base: hom-${{ inputs.version }}
+          filters: |
+            desktop_ui:
+              - 'desktop-ui/!(**/*.md)/**'
+            desktop_cmd:
+              - 'desktop-cmd/!(**/*.md)/**'
+            ws_export:
+              - 'workerservices/Desktop.Export/**'
+              - 'workerservices/Tests/Unit/Desktop.Export.UnitTests/**'
+            ws_import:
+              - 'workerservices/Desktop.Import/**'
+              - 'workerservices/Tests/Unit/Desktop.Import.UnitTests/**'
+            ws_instance:
+              - 'workerservices/Desktop.Instance/**'
+              - 'workerservices/Tests/Unit/Desktop.Instance.UnitTests/**'
+            ws_integration:
+              - 'workerservices/Desktop.Integration/**'
+              - 'workerservices/Tests/Unit/Desktop.Integration.UnitTests/**'
+            ws_interface_api:
+              - 'workerservices/Desktop.InterfaceAPI/**'
+              - 'workerservices/Tests/Unit/Desktop.InterfaceAPI.UnitTests/**'
+            ws_database:
+              - 'workerservices/Libraries/Desktop.Database/**'
+              - 'workerservices/Tests/Unit/Desktop.Database.UnitTests/**'
+            ws_models:
+              - 'workerservices/Libraries/Desktop.Models/**'
+              - 'workerservices/Tests/Unit/Desktop.Models.UnitTests/**'
 
       - name: Build projects matrix
         id: compute_matrix
+        env:
+          VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           set -euo pipefail
 
-          read -r -d '' DOTNET_LIBRARIES <<'EOF' || true
+          if [[ "${{ steps.validate.outputs.hom_tag_exists }}" == "true" ]]; then
+            PROJECTS='[]'
+            DOTNET_LIBRARIES='[]'
+
+            if [[ "${{ steps.filter.outputs.desktop_ui }}" == "true" ]]; then
+              PROJECTS=$(jq -c '. + [{
+                "name": "desktop-ui",
+                "type": "node",
+                "path": "desktop-ui"
+              }]' <<< "$PROJECTS")
+            fi
+
+            if [[ "${{ steps.filter.outputs.desktop_cmd }}" == "true" ]]; then
+              PROJECTS=$(jq -c '. + [{
+                "name": "desktop-cmd",
+                "type": "go",
+                "path": "desktop-cmd",
+                "go_mod": "desktop-cmd/go.mod",
+                "go_sum": "desktop-cmd/go.sum"
+              }]' <<< "$PROJECTS")
+            fi
+
+            add_dotnet_service() {
+              local name="$1"
+              local path="$2"
+              local unit="$3"
+              local integration="$4"
+              local changed="$5"
+              if [[ "$changed" == "true" ]]; then
+                PROJECTS=$(jq -c --arg n "$name" --arg p "$path" --arg u "$unit" --arg i "$integration" '. + [{
+                  "name": $n,
+                  "type": "dotnet",
+                  "path": $p,
+                  "unit_tests": $u,
+                  "integration_tests": $i
+                }]' <<< "$PROJECTS")
+              fi
+            }
+
+            add_dotnet_library() {
+              local name="$1"
+              local path="$2"
+              local unit="$3"
+              local changed="$4"
+              if [[ "$changed" == "true" ]]; then
+                DOTNET_LIBRARIES=$(jq -c --arg n "$name" --arg p "$path" --arg u "$unit" '. + [{
+                  "name": $n,
+                  "path": $p,
+                  "unit_tests": $u
+                }]' <<< "$DOTNET_LIBRARIES")
+              fi
+            }
+
+            add_dotnet_library "Desktop.Database" "workerservices/Libraries/Desktop.Database" "workerservices/Tests/Unit/Desktop.Database.UnitTests" "${{ steps.filter.outputs.ws_database }}"
+            add_dotnet_library "Desktop.Models" "workerservices/Libraries/Desktop.Models" "workerservices/Tests/Unit/Desktop.Models.UnitTests" "${{ steps.filter.outputs.ws_models }}"
+
+            add_dotnet_service "Desktop.Export" "workerservices/Desktop.Export" "workerservices/Tests/Unit/Desktop.Export.UnitTests" "workerservices/Tests/Integration/Desktop.Export.IntegrationTests" "${{ steps.filter.outputs.ws_export }}"
+            add_dotnet_service "Desktop.Import" "workerservices/Desktop.Import" "workerservices/Tests/Unit/Desktop.Import.UnitTests" "workerservices/Tests/Integration/Desktop.Import.IntegrationTests" "${{ steps.filter.outputs.ws_import }}"
+            add_dotnet_service "Desktop.Instance" "workerservices/Desktop.Instance" "workerservices/Tests/Unit/Desktop.Instance.UnitTests" "workerservices/Tests/Integration/Desktop.Instance.IntegrationTests" "${{ steps.filter.outputs.ws_instance }}"
+            add_dotnet_service "Desktop.Integration" "workerservices/Desktop.Integration" "workerservices/Tests/Unit/Desktop.Integration.UnitTests" "workerservices/Tests/Integration/Desktop.Integration.IntegrationTests" "${{ steps.filter.outputs.ws_integration }}"
+            add_dotnet_service "Desktop.InterfaceAPI" "workerservices/Desktop.InterfaceAPI" "workerservices/Tests/Unit/Desktop.InterfaceAPI.UnitTests" "workerservices/Tests/Integration/Desktop.InterfaceAPI.IntegrationTests" "${{ steps.filter.outputs.ws_interface_api }}"
+
+            GO_MATRIX=$(jq -c '[.[] | select(.type == "go")]' <<< "$PROJECTS")
+            NODE_MATRIX=$(jq -c '[.[] | select(.type == "node")]' <<< "$PROJECTS")
+            DOTNET_MATRIX=$(jq -c '[.[] | select(.type == "dotnet")]' <<< "$PROJECTS")
+            DOTNET_LIBRARIES_MATRIX=$(jq -c <<< "$DOTNET_LIBRARIES")
+
+            if [[ "$GO_MATRIX" == "[]" && "$NODE_MATRIX" == "[]" && "$DOTNET_MATRIX" == "[]" && "$DOTNET_LIBRARIES_MATRIX" == "[]" ]]; then
+              echo "quality_scope=skipped" >> "$GITHUB_OUTPUT"
+              echo "Nenhuma alteração em código de projeto desde hom-${VERSION} — etapas de qualidade serão ignoradas."
+            else
+              echo "quality_scope=changed-only" >> "$GITHUB_OUTPUT"
+              echo "Validação incremental desde hom-${VERSION}:"
+              echo "  Go:        $GO_MATRIX"
+              echo "  Node:      $NODE_MATRIX"
+              echo "  .NET libs: $DOTNET_LIBRARIES_MATRIX"
+              echo "  .NET svcs: $DOTNET_MATRIX"
+            fi
+          else
+            echo "quality_scope=full" >> "$GITHUB_OUTPUT"
+            echo "Primeira homologação da versão ${VERSION} — validação completa de todos os projetos."
+
+            read -r -d '' DOTNET_LIBRARIES <<'EOF' || true
           [
             {
               "name": "Desktop.Database",
@@ -117,12 +240,9 @@ jobs:
             }
           ]
           EOF
-          DOTNET_LIBRARIES_MATRIX=$(jq -c <<< "$DOTNET_LIBRARIES")
-          {
-            echo "dotnet_libraries_matrix=$DOTNET_LIBRARIES_MATRIX"
-          } >> "$GITHUB_OUTPUT"
+            DOTNET_LIBRARIES_MATRIX=$(jq -c <<< "$DOTNET_LIBRARIES")
 
-          read -r -d '' PROJECTS <<'EOF' || true
+            read -r -d '' PROJECTS <<'EOF' || true
           [
             {
               "name": "desktop-ui",
@@ -173,19 +293,24 @@ jobs:
             }
           ]
           EOF
-          GO_MATRIX=$(jq -c '[.[] | select(.type == "go")]'    <<< "$PROJECTS")
-          NODE_MATRIX=$(jq -c '[.[] | select(.type == "node")]' <<< "$PROJECTS")
-          DOTNET_MATRIX=$(jq -c '[.[] | select(.type == "dotnet")]' <<< "$PROJECTS")
+            GO_MATRIX=$(jq -c '[.[] | select(.type == "go")]'    <<< "$PROJECTS")
+            NODE_MATRIX=$(jq -c '[.[] | select(.type == "node")]' <<< "$PROJECTS")
+            DOTNET_MATRIX=$(jq -c '[.[] | select(.type == "dotnet")]' <<< "$PROJECTS")
+          fi
+
           {
             echo "go_matrix=$GO_MATRIX"
             echo "node_matrix=$NODE_MATRIX"
             echo "dotnet_matrix=$DOTNET_MATRIX"
+            echo "dotnet_libraries_matrix=$DOTNET_LIBRARIES_MATRIX"
           } >> "$GITHUB_OUTPUT"
 
   # ─────────────────────────────────────────────
-  # 3. QUALIDADE - GO
-  # Um job por linguagem. A matriz vem só com os projetos Go; se estiver
-  # vazia, o job inteiro é pulado. Sem condicionais por step.
+  # 3. QUALIDADE
+  # Matriz definida em prepare_build:
+  #   - Tag hom-* inexistente → validação completa (full)
+  #   - Tag hom-* existente    → só projetos alterados desde a tag (changed-only)
+  #   - Nenhum projeto alterado → matrizes vazias, jobs pulados (skipped)
   # ─────────────────────────────────────────────
   quality_go:
     name: Project quality golang
@@ -238,12 +363,15 @@ jobs:
     name: CI Gate
     runs-on: ubuntu-latest
     needs:
-      [quality_go, quality_node, quality_service_libraries, quality_services]
+      [prepare_build, quality_go, quality_node, quality_service_libraries, quality_services]
     if: always()
     steps:
       - name: Check all results
         run: |
           set -euo pipefail
+
+          SCOPE="${{ needs.prepare_build.outputs.quality_scope }}"
+          echo "quality_scope: $SCOPE"
 
           GO="${{ needs.quality_go.result }}"
           NODE="${{ needs.quality_node.result }}"
@@ -254,6 +382,10 @@ jobs:
           echo "quality_node:         $NODE"
           echo "quality_service_libraries: $DOTNET_LIBRARIES"
           echo "quality_services:       $DOTNET_SERVICES"
+
+          if [[ "$SCOPE" == "skipped" ]]; then
+            echo "Nenhuma alteração em código de projeto desde a última homologação — qualidade ignorada, prosseguindo para build."
+          fi
 
           FAIL=0
 
