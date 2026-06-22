@@ -89,7 +89,7 @@ jobs:
     needs: prepare_build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build dependencies (.NET, Go)
         shell: bash
@@ -111,7 +111,7 @@ jobs:
             --configuration "$cfg" /p:Platform="$DOTNET_PLATFORM" --no-restore
 
       - name: Cache .NET bootstrap (obj + nuget)
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.nuget/packages
@@ -128,7 +128,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(needs.prepare_build.outputs.build_matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install build dependencies (.NET, Go)
         shell: bash
@@ -139,7 +139,7 @@ jobs:
 
       - name: Restore .NET bootstrap cache
         if: matrix.project.type == 'dotnet'
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.nuget/packages
@@ -187,7 +187,7 @@ jobs:
           fi
 
       - name: Upload payload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: payload-${{ matrix.project.id }}
           path: payload-staging
@@ -197,9 +197,9 @@ jobs:
     needs: build_project
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: artifacts
 
@@ -237,7 +237,7 @@ jobs:
           mkdir -p "$out_dir"
           bash installers/linux/package-installer.sh "$VERSION" "$out_dir" "installers/linux/staging"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: DesktopServices-${{ env.DOTNET_CONFIGURATION }}
           path: installers/linux/bin/${{ env.DOTNET_CONFIGURATION }}/DesktopServices-*.tar.gz
@@ -249,7 +249,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Delete run-scoped caches
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const key = `dotnet-linux-bootstrap-${context.runId}`;

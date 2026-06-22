@@ -31,7 +31,7 @@ jobs:
       node_matrix: ${{ steps.compute_matrix.outputs.node_matrix }}
       dotnet_matrix: ${{ steps.compute_matrix.outputs.dotnet_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -158,7 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect-changes
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 

@@ -20,13 +20,13 @@ jobs:
       matrix:
         project: ${{ fromJSON(inputs.node_matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # node-version: lts/* mantém o runtime sempre no último Node LTS. O cache
       # de npm (download) é o análogo ao cache de módulos do setup-go.
       - name: Set up Node
         id: setup_node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: lts/*
           cache: npm
@@ -56,7 +56,7 @@ jobs:
       # Cache do node_modules (deps + validadores), análogo ao cache de ~/go/bin.
       - name: Cache Node dependencies and validators
         id: cache_node
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ matrix.project.path }}/node_modules
           key: node-deps-${{ runner.os }}-node${{ steps.setup_node.outputs.node-version }}-lock${{ hashFiles(format('{0}/package-lock.json', matrix.project.path)) }}-eslint${{ steps.node_tools.outputs.eslint }}-tseslint${{ steps.node_tools.outputs.tseslint }}-ngeslint${{ steps.node_tools.outputs.angular_eslint }}-sec${{ steps.node_tools.outputs.eslint_security }}-prettier${{ steps.node_tools.outputs.prettier }}
@@ -97,7 +97,7 @@ jobs:
         run: npm test -- --no-watch --coverage
 
       - name: Node - coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-${{ matrix.project.name }}
           path: ${{ matrix.project.path }}/coverage/

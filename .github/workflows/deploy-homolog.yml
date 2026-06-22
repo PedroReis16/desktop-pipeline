@@ -38,7 +38,7 @@ jobs:
       dotnet_matrix: ${{ steps.compute_matrix.outputs.dotnet_matrix }}
       dotnet_libraries_matrix: ${{ steps.compute_matrix.outputs.dotnet_libraries_matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -47,7 +47,44 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      
+      - name: Validate version, changelog and tags
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${VERSION// }" ]]; then
+            echo "::error::Versão não informada."
+            exit 1
+          fi
+
+          CHANGELOG_FILE="CHANGELOG.md"
+          if [[ ! -f "$CHANGELOG_FILE" ]]; then
+            echo "::error::Arquivo ${CHANGELOG_FILE} não encontrado."
+            exit 1
+          fi
+
+          VERSION_ESCAPED=$(printf '%s' "$VERSION" | sed 's/[.[\*^$()+?{|]/\\&/g')
+          if ! grep -qE "^\#\s*\*\*\[${VERSION_ESCAPED}\]" "$CHANGELOG_FILE"; then
+            echo "::error::CHANGELOG não contém entrada para a versão ${VERSION}."
+            echo "Esperado um bloco no formato: # **[${VERSION}] - YYYY-MM-DD**"
+            exit 1
+          fi
+          echo "CHANGELOG contém entrada para a versão ${VERSION}."
+
+          if git rev-parse "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "::error::A tag de produção '${VERSION}' já existe."
+            echo "Esta versão já foi lançada em produção — atualize o CHANGELOG e informe uma nova versão antes de prosseguir."
+            exit 1
+          fi
+
+          HOM_TAG="hom-${VERSION}"
+          if git rev-parse "refs/tags/${HOM_TAG}" >/dev/null 2>&1; then
+            echo "Tag de homologação ${HOM_TAG} já existe — será atualizada ao final do processo."
+          else
+            echo "Tag de homologação ${HOM_TAG} ainda não existe — será criada ao final do processo."
+          fi
 
       - name: Build projects matrix
         id: compute_matrix
@@ -275,7 +312,7 @@ jobs:
     steps:
       - name: Download Windows bundle
         if: needs.build_windows.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: DesktopServices-HomologWinX64
           path: release-assets/windows
@@ -283,7 +320,7 @@ jobs:
       - name: Download Linux bundle
         if: needs.build_linux.result == 'success'
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: DesktopServices-HomologLinuxX64
           path: release-assets/linux
@@ -292,7 +329,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
-          TAG: homolog-${{ inputs.version }}
+          TAG: hom-${{ inputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -328,3 +365,22 @@ jobs:
           fi
 
           echo "Release publicada: ${GITHUB_SERVER_URL}/${{ github.repository }}/releases/tag/$TAG"
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Update homolog tag to current commit
+        env:
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="hom-${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa "$TAG" -m "Homolog ${VERSION} — workflow #${{ github.run_number }}"
+          git push origin "refs/tags/${TAG}" --force
+          echo "Tag ${TAG} atualizada para o commit ${GITHUB_SHA}."

@@ -20,7 +20,7 @@ jobs:
       matrix:
         project: ${{ fromJSON(inputs.go_matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Go
         id: setup_go
@@ -71,7 +71,7 @@ jobs:
 
       - name: Cache Go security tools
         id: cache_go_tools
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/go/bin
           key: go-sec-tools-${{ runner.os }}-go${{ steps.setup_go.outputs.go-version }}-gosec${{ steps.tool_versions.outputs.gosec }}-govulncheck${{ steps.tool_versions.outputs.govulncheck }}-golangci${{ steps.tool_versions.outputs.golangci }}
@@ -141,7 +141,7 @@ jobs:
             -timeout=120s
 
       - name: Go - coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-${{ matrix.project.name }}
           path: ${{ matrix.project.path }}/coverage.out

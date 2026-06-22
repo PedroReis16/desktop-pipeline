@@ -23,16 +23,16 @@ jobs:
         project: ${{ fromJSON(inputs.dotnet_matrix) }} # Corrigido: usa inputs em vez de needs.detect-changes.outputs
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             10.0.x
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles(format('{0}/**/*.csproj', matrix.project.path)) }}
@@ -76,7 +76,7 @@ jobs:
 
       - name: Cache .NET validation tools
         id: cache_dotnet_tools
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.dotnet/tools
           key: dotnet-tools-${{ runner.os }}-roslynator${{ steps.dotnet_tools.outputs.roslynator }}-securityscan${{ steps.dotnet_tools.outputs.security_scan }}
@@ -147,7 +147,7 @@ jobs:
         run: dotnet test "${{ matrix.project.unit_tests }}" --collect:"XPlat Code Coverage"
 
       - name: .NET - coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-${{ matrix.project.name }}
           path: ${{ matrix.project.unit_tests }}/TestResults/**/coverage.cobertura.xml

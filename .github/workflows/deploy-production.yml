@@ -33,7 +33,7 @@ name: Deploy Production
 #
 # Atenção:
 #   • A MSDO action é uma CLI .NET; se faltar runtime, adicionar
-#     actions/setup-dotnet@v4 antes do step.
+#     actions/setup-dotnet@v5 antes do step.
 #   • Regras BAxxxx são voltadas a C/C++ (MSVC/GCC); em binários Go várias
 #     podem vir como notApplicable ou gerar ruído. Calibrar via .gdnconfig
 #     ou suppressões para o job não quebrar por regra inaplicável.
@@ -93,7 +93,7 @@ jobs:
         outputs:
             projects_matrix: ${{ steps.compute_matrix.outputs.projects_matrix }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v5
               with:
                 fetch-depth: 0
 
