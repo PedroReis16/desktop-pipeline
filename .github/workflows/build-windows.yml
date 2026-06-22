@@ -149,7 +149,7 @@ jobs:
   installer_shared_build:
     name: Build InstallerShared
     needs: prepare_build
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
