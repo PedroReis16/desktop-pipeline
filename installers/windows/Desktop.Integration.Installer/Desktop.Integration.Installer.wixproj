@@ -1,6 +1,6 @@
 <Project Sdk="WixToolset.Sdk/6.0.2">
   <PropertyGroup>
-    <PublishDir>..\..\..\workerservices\Desktop.Instance\bin\x64\$(Configuration)\net10.0\publish</PublishDir>
+    <PublishDir>..\..\..\workerservices\Desktop.Integration\bin\x64\$(Configuration)\net10.0\publish</PublishDir>
   </PropertyGroup>
   <PropertyGroup>
     <HarvestDirectorySuppressCom>true</HarvestDirectorySuppressCom>

@@ -16,11 +16,11 @@
 
   <!-- 2. Define a chave para encontrar o ID do componente que contém o EXE -->
   <xsl:key name="ExeComponentId" 
-           match="wix:Component[wix:File[@Source='$(var.PublishDir)\Desktop.Integration.exe']]" 
+           match="wix:Component[wix:File[@Source='$(var.PublishDir)\Desktop.InterfaceAPI.exe']]" 
            use="@Id" />
 
   <!-- 3. Remove o Componente que contém o arquivo EXE -->
-  <xsl:template match="wix:Component[wix:File[@Source='$(var.PublishDir)\Desktop.Integration.exe']]" />
+  <xsl:template match="wix:Component[wix:File[@Source='$(var.PublishDir)\Desktop.InterfaceAPI.exe']]" />
 
   <!-- 4. Remove a Referência (ComponentRef) desse componente dentro do ComponentGroup -->
   <!-- Isso é crucial para evitar o erro WIX0094 -->
