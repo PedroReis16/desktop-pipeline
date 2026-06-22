@@ -4,7 +4,8 @@ param(
 )
 
 $currentDir = Get-Location
-$dockerImage = "mcr.microsoft.com/dotnet/sdk:8.0" # Imagem Docker com o SDK -> Ajustar confome a necessidade
+# Imagem base minima; .NET e Go sao instalados por install-build-deps.sh
+$dockerImage = "ubuntu:24.04"
 
 if([string]::IsNullOrEmpty($projectBuild)){
     Write-Host "Necessario informar o tipo de build." -ForegroundColor Red
@@ -61,7 +62,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Diretório de saída no Windows
-$outputDir = Join-Path $currentDir "Installers\Linux\bin\$projectBuild"
+$outputDir = Join-Path $currentDir "installers\linux\bin\$projectBuild"
 if (Test-Path $outputDir) { Remove-Item $outputDir -Recurse -Force }
 New-Item -ItemType Directory -Path $outputDir | Out-Null
 
@@ -79,7 +80,7 @@ docker run --rm `
     -v "${outputDir}:/out" `
     -w "/src" `
     $dockerImage `
-    /bin/bash -c "apt-get update && apt-get install -y dos2unix && dos2unix ./Installers/Linux/release-linux.sh && chmod +x ./Installers/Linux/release-linux.sh && ./Installers/Linux/release-linux.sh $projectBuild $version"
+    /bin/bash -c "set -euo pipefail && apt-get update && apt-get install -y --no-install-recommends dos2unix && find ./installers/linux -name '*.sh' -exec dos2unix {} + && chmod +x ./installers/linux/*.sh ./installers/linux/scripts/*.sh && ./installers/linux/release-linux.sh $projectBuild $version"
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build Linux concluido com sucesso!" -ForegroundColor Green

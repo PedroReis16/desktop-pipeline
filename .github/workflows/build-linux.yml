@@ -15,15 +15,255 @@ env:
   DOTNET_PLATFORM: x64
   DOTNET_RID: linux-x64
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
-  build:
-    name: Build Linux X64
+  prepare_build:
+    name: Prepare Linux build matrix
     runs-on: ubuntu-latest
+    outputs:
+      build_matrix: ${{ steps.matrix.outputs.build_matrix }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
+      - id: matrix
+        shell: bash
         run: |
           set -euo pipefail
-          echo "Building Linux X64"
-          echo "Version: ${{ inputs.version }}"
+          read -r -d '' BUILD_MATRIX <<'EOF' || true
+          [
+            {
+              "id": "desktop-export",
+              "name": "Desktop.Export",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Export/Desktop.Export.csproj",
+              "publish_profile": "./workerservices/Desktop.Export/Properties/PublishProfiles/linux-x64.pubxml",
+              "artifact_dir": "workerservices/Desktop.Export/bin/x64"
+            },
+            {
+              "id": "desktop-import",
+              "name": "Desktop.Import",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Import/Desktop.Import.csproj",
+              "publish_profile": "./workerservices/Desktop.Import/Properties/PublishProfiles/linux-x64.pubxml",
+              "artifact_dir": "workerservices/Desktop.Import/bin/x64"
+            },
+            {
+              "id": "desktop-instance",
+              "name": "Desktop.Instance",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Instance/Desktop.Instance.csproj",
+              "publish_profile": "./workerservices/Desktop.Instance/Properties/PublishProfiles/linux-x64.pubxml",
+              "artifact_dir": "workerservices/Desktop.Instance/bin/x64"
+            },
+            {
+              "id": "desktop-integration",
+              "name": "Desktop.Integration",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.Integration/Desktop.Integration.csproj",
+              "publish_profile": "./workerservices/Desktop.Integration/Properties/PublishProfiles/linux-x64.pubxml",
+              "artifact_dir": "workerservices/Desktop.Integration/bin/x64"
+            },
+            {
+              "id": "desktop-interfaceapi",
+              "name": "Desktop.InterfaceAPI",
+              "type": "dotnet",
+              "csproj": "workerservices/Desktop.InterfaceAPI/Desktop.InterfaceAPI.csproj",
+              "publish_profile": "./workerservices/Desktop.InterfaceAPI/Properties/PublishProfiles/linux-x64.pubxml",
+              "artifact_dir": "workerservices/Desktop.InterfaceAPI/bin/x64"
+            },
+            {
+              "id": "desktop-cmd",
+              "name": "desktop-cmd",
+              "type": "go",
+              "workdir": "desktop-cmd",
+              "go_target": "./cmd/desktop",
+              "exe_output": "desktop-cmd/bin/desktop"
+            }
+          ]
+          EOF
+          echo "build_matrix=$(jq -c <<< "$BUILD_MATRIX")" >> "$GITHUB_OUTPUT"
+
+  dotnet_bootstrap:
+    name: Bootstrap .NET solution
+    needs: prepare_build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (.NET, Go)
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x installers/linux/*.sh installers/linux/scripts/*.sh
+          bash installers/linux/install-build-deps.sh
+
+      - name: Clean + restore + build DesktopServices.slnx
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg="$DOTNET_CONFIGURATION"
+          dotnet clean ./workerservices/DesktopServices.slnx --configuration "$cfg"
+          dotnet restore ./workerservices/DesktopServices.slnx \
+            -r "$DOTNET_RID" \
+            /p:Configuration="$cfg" /p:Platform="$DOTNET_PLATFORM" /p:PublishReadyToRun=true
+          dotnet build ./workerservices/DesktopServices.slnx \
+            --configuration "$cfg" /p:Platform="$DOTNET_PLATFORM" --no-restore
+
+      - name: Cache .NET bootstrap (obj + nuget)
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            workerservices/**/obj
+          key: dotnet-linux-bootstrap-${{ github.run_id }}
+
+  build_project:
+    name: "${{ matrix.project.name }}"
+    needs: [prepare_build, dotnet_bootstrap]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        project: ${{ fromJSON(needs.prepare_build.outputs.build_matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (.NET, Go)
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x installers/linux/*.sh installers/linux/scripts/*.sh
+          bash installers/linux/install-build-deps.sh
+
+      - name: Restore .NET bootstrap cache
+        if: matrix.project.type == 'dotnet'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.nuget/packages
+            workerservices/**/obj
+          key: dotnet-linux-bootstrap-${{ github.run_id }}
+          fail-on-cache-miss: true
+
+      - name: Publish .NET service
+        if: matrix.project.type == 'dotnet'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          dotnet publish "${{ matrix.project.csproj }}" \
+            /p:PublishProfile=${{ matrix.project.publish_profile }} \
+            --configuration "$DOTNET_CONFIGURATION" /p:Platform="$DOTNET_PLATFORM" \
+            /p:Version="$VERSION" --no-restore
+
+      - name: Build desktop-cmd
+        if: matrix.project.type == 'go'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        working-directory: ${{ matrix.project.workdir }}
+        run: |
+          set -euo pipefail
+          mkdir -p bin
+          GOOS=linux GOARCH=amd64 go build \
+            -ldflags "-s -w -X main.version=$VERSION" \
+            -o ../${{ matrix.project.exe_output }} ${{ matrix.project.go_target }}
+
+      - name: Stage payload for artifact upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="payload-staging"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          if [[ "${{ matrix.project.type }}" == "dotnet" ]]; then
+            src="${{ matrix.project.artifact_dir }}/${DOTNET_CONFIGURATION}/net10.0/publish/${{ matrix.project.name }}"
+            cp -a "${src}/." "$staging/"
+          else
+            cp "${{ matrix.project.exe_output }}" "$staging/desktop"
+          fi
+
+      - name: Upload payload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload-${{ matrix.project.id }}
+          path: payload-staging
+
+  package_bundle:
+    name: Package DesktopServices Linux bundle
+    needs: build_project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Layout payloads for installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="installers/linux/staging"
+          rm -rf "$staging"
+          mkdir -p "$staging"
+
+          layout=(
+            "payload-desktop-export:artifacts/payload-desktop-export"
+            "payload-desktop-import:artifacts/payload-desktop-import"
+            "payload-desktop-instance:artifacts/payload-desktop-instance"
+            "payload-desktop-integration:artifacts/payload-desktop-integration"
+            "payload-desktop-interfaceapi:artifacts/payload-desktop-interfaceapi"
+            "payload-desktop-cmd:artifacts/payload-desktop-cmd"
+          )
+
+          for entry in "${layout[@]}"; do
+            dest="${entry%%:*}"
+            src="${entry##*:}"
+            mkdir -p "$staging/$dest"
+            cp -a "$src/." "$staging/$dest/"
+          done
+
+      - name: Build installer tarball
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          out_dir="installers/linux/bin/${DOTNET_CONFIGURATION}"
+          mkdir -p "$out_dir"
+          bash installers/linux/package-installer.sh "$VERSION" "$out_dir" "installers/linux/staging"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DesktopServices-${{ env.DOTNET_CONFIGURATION }}
+          path: installers/linux/bin/${{ env.DOTNET_CONFIGURATION }}/DesktopServices-*.tar.gz
+
+  cleanup_caches:
+    name: Cleanup workflow caches
+    needs: [dotnet_bootstrap, build_project, package_bundle]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete run-scoped caches
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const key = `dotnet-linux-bootstrap-${context.runId}`;
+            const { data } = await github.rest.actions.getActionsCacheList({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              key,
+            });
+
+            for (const cache of data.actions_caches) {
+              core.info(`Removendo cache ${cache.key} (id=${cache.id})`);
+              await github.rest.actions.deleteActionsCacheById({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                cache_id: cache.id,
+              });
+            }

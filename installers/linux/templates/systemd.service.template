@@ -1,0 +1,17 @@
+[Unit]
+Description={{DESCRIPTION}}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+WorkingDirectory={{INSTALL_ROOT}}/services/{{FOLDER}}
+ExecStart={{INSTALL_ROOT}}/services/{{FOLDER}}/{{BINARY}}
+Restart=on-failure
+RestartSec=10
+User=desktopservices
+Group=desktopservices
+Environment=DOTNET_EnableDiagnostics=0
+
+[Install]
+WantedBy=multi-user.target
