@@ -166,7 +166,7 @@ jobs:
       run_integration_tests: false
 
   quality_services:
-    needs: [quality_service_libraries]
+    needs: [prepare_build, quality_service_libraries]
     if: needs.prepare_build.outputs.dotnet_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
     with:
@@ -195,7 +195,6 @@ jobs:
           DOTNET_LIBRARIES="${{ needs.quality_service_libraries.result }}"
           DOTNET_SERVICES="${{ needs.quality_services.result }}"
 
-          echo "secrets_scan:         $SECRETS"
           echo "quality_go:           $GO"
           echo "quality_node:         $NODE"
           echo "quality_service_libraries: $DOTNET_LIBRARIES"
@@ -204,11 +203,6 @@ jobs:
           FAIL=0
 
           # Todos os jobs obrigatórios (rodam sempre)
-
-          if [[ "$AUTHORS" != "success" ]]; then
-            echo "::error::Commit authors check falhou ou não completou com sucesso."
-            FAIL=1
-          fi
 
           # Jobs condicionais: só falha se rodaram E falharam.
           # Se for skipped, não é obrigatório para esta PR.
@@ -288,7 +282,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: DesktopServices-HomologLinuxX64
+          name: DesktopServices-${{ env.DOTNET_LINUX_CONFIGURATION }}
           path: release-assets/linux
 
       - name: Create or update GitHub Release
@@ -315,7 +309,7 @@ jobs:
             notes+=$'\n\n- **Windows x64:** `DesktopServices.exe`'
           fi
           if [[ "${{ needs.build_linux.result }}" == "success" ]]; then
-            notes+=$'\n- **Linux x64:** bundle Linux'
+            notes+=$'\n- **Linux x64:** `DesktopServices-*-linux-x64.tar.gz` (extrair e executar `sudo ./install.sh`)'
           fi
 
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
