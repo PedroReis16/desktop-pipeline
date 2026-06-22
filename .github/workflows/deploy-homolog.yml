@@ -31,6 +31,7 @@ jobs:
   prepare_build:
     name: Prepare build environment
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
     outputs:
       go_matrix: ${{ steps.compute_matrix.outputs.go_matrix }}
       node_matrix: ${{ steps.compute_matrix.outputs.node_matrix }}
@@ -40,6 +41,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      
 
       - name: Build projects matrix
         id: compute_matrix
@@ -125,11 +133,6 @@ jobs:
             echo "node_matrix=$NODE_MATRIX"
             echo "dotnet_matrix=$DOTNET_MATRIX"
           } >> "$GITHUB_OUTPUT"
-
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ─────────────────────────────────────────────
   # 3. QUALIDADE - GO
