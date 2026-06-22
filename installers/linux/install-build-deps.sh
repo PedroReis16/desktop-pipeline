@@ -72,6 +72,56 @@ is_debian_like() {
   [[ -f /etc/debian_version ]]
 }
 
+ubuntu_major_version() {
+  if [[ -f /etc/os-release ]]; then
+    # shellcheck source=/dev/null
+    source /etc/os-release
+    if [[ "${ID:-}" == "ubuntu" && "${VERSION_ID:-}" =~ ^[0-9]+ ]]; then
+      printf '%s\n' "${VERSION_ID%%.*}"
+      return 0
+    fi
+  fi
+  printf '%s\n' "0"
+}
+
+electron_build_packages() {
+  local ubuntu_major
+  ubuntu_major="$(ubuntu_major_version)"
+
+  # Ubuntu 24.04+ (Noble) renomeou bibliotecas para variantes t64 (time_t 64-bit).
+  if [[ "$ubuntu_major" -ge 24 ]]; then
+    printf '%s\n' \
+      libasound2t64 \
+      libatk-bridge2.0-0t64 \
+      libatk1.0-0t64 \
+      libcups2t64 \
+      libdrm2 \
+      libgbm1 \
+      libgtk-3-0t64 \
+      libnss3 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxfixes3 \
+      libxkbcommon0 \
+      libxrandr2
+  else
+    printf '%s\n' \
+      libasound2 \
+      libatk-bridge2.0-0 \
+      libatk1.0-0 \
+      libcups2 \
+      libdrm2 \
+      libgbm1 \
+      libgtk-3-0 \
+      libnss3 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxfixes3 \
+      libxkbcommon0 \
+      libxrandr2
+  fi
+}
+
 read_go_version() {
   [[ -f "$GO_MOD" ]] || die "go.mod nao encontrado: $GO_MOD"
   grep -E '^go [0-9]+\.[0-9]+(\.[0-9]+)?' "$GO_MOD" | awk '{print $2}'
@@ -119,21 +169,10 @@ ensure_system_packages() {
   )
 
   if [[ "${INSTALL_ELECTRON_DEPS:-0}" == "1" ]]; then
-    packages+=(
-      libasound2
-      libatk-bridge2.0-0
-      libatk1.0-0
-      libcups2
-      libdrm2
-      libgbm1
-      libgtk-3-0
-      libnss3
-      libxcomposite1
-      libxdamage1
-      libxfixes3
-      libxkbcommon0
-      libxrandr2
-    )
+    local electron_pkg
+    while IFS= read -r electron_pkg; do
+      [[ -n "$electron_pkg" ]] && packages+=("$electron_pkg")
+    done < <(electron_build_packages)
   fi
 
   apt_get install -y --no-install-recommends "${packages[@]}"
