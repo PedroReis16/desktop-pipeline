@@ -84,7 +84,7 @@ docker run --rm `
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Build Linux concluido com sucesso!" -ForegroundColor Green
-    Write-Host "Instalador disponivel em: $outputDir" -ForegroundColor Cyan
+    Write-Host "Artefatos disponiveis em: $outputDir (.deb e AppImage)" -ForegroundColor Cyan
 } else {
     Write-Host "Falha no Build Linux." -ForegroundColor Red
     exit 1

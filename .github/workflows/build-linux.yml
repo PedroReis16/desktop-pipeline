@@ -79,6 +79,13 @@ jobs:
               "workdir": "desktop-cmd",
               "go_target": "./cmd/desktop",
               "exe_output": "desktop-cmd/bin/desktop"
+            },
+            {
+              "id": "desktop-ui",
+              "name": "desktop-ui",
+              "type": "node",
+              "workdir": "desktop-ui",
+              "artifact_dir": "desktop-ui/dist_electron/linux-unpacked"
             }
           ]
           EOF
@@ -124,7 +131,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 7
       matrix:
         project: ${{ fromJSON(needs.prepare_build.outputs.build_matrix) }}
     steps:
@@ -172,6 +179,33 @@ jobs:
             -ldflags "-s -w -X main.version=$VERSION" \
             -o ../${{ matrix.project.exe_output }} ${{ matrix.project.go_target }}
 
+      - uses: actions/setup-node@v5
+        if: matrix.project.type == 'node'
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: desktop-ui/package-lock.json
+
+      - name: Install Electron build dependencies
+        if: matrix.project.type == 'node'
+        shell: bash
+        run: |
+          set -euo pipefail
+          INSTALL_ELECTRON_DEPS=1 bash installers/linux/install-build-deps.sh
+
+      - name: Build desktop-ui
+        if: matrix.project.type == 'node'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        working-directory: ${{ matrix.project.workdir }}
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build:electron
+          npx electron-builder build --linux dir --config.extraMetadata.version="$VERSION"
+          [[ -d dist_electron/linux-unpacked ]] || { echo "::error::desktop-ui linux-unpacked nao encontrado"; exit 1; }
+
       - name: Stage payload for artifact upload
         shell: bash
         run: |
@@ -182,8 +216,10 @@ jobs:
           if [[ "${{ matrix.project.type }}" == "dotnet" ]]; then
             src="${{ matrix.project.artifact_dir }}/${DOTNET_CONFIGURATION}/net10.0/publish/${{ matrix.project.name }}"
             cp -a "${src}/." "$staging/"
-          else
+          elif [[ "${{ matrix.project.type }}" == "go" ]]; then
             cp "${{ matrix.project.exe_output }}" "$staging/desktop"
+          else
+            cp -a "${{ matrix.project.artifact_dir }}/." "$staging/"
           fi
 
       - name: Upload payload artifact
@@ -218,6 +254,7 @@ jobs:
             "payload-desktop-integration:artifacts/payload-desktop-integration"
             "payload-desktop-interfaceapi:artifacts/payload-desktop-interfaceapi"
             "payload-desktop-cmd:artifacts/payload-desktop-cmd"
+            "payload-desktop-ui:artifacts/payload-desktop-ui"
           )
 
           for entry in "${layout[@]}"; do
@@ -227,7 +264,7 @@ jobs:
             cp -a "$src/." "$staging/$dest/"
           done
 
-      - name: Build installer tarball
+      - name: Build Linux packages (.deb + AppImage)
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
@@ -240,7 +277,9 @@ jobs:
       - uses: actions/upload-artifact@v5
         with:
           name: DesktopServices-${{ env.DOTNET_CONFIGURATION }}
-          path: installers/linux/bin/${{ env.DOTNET_CONFIGURATION }}/DesktopServices-*.tar.gz
+          path: |
+            installers/linux/bin/${{ env.DOTNET_CONFIGURATION }}/desktopservices_*.deb
+            installers/linux/bin/${{ env.DOTNET_CONFIGURATION }}/DesktopServices-*.AppImage
 
   cleanup_caches:
     name: Cleanup workflow caches

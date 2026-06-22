@@ -57,7 +57,22 @@ GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.version=${VERSION}" -o 
 popd >/dev/null
 cp desktop-cmd/bin/desktop "${STAGING}/payload-desktop-cmd/"
 
-log "Empacotando instalador..."
+log "Compilando desktop-ui..."
+INSTALL_ELECTRON_DEPS=1 bash "${REPO_ROOT}/installers/linux/install-build-deps.sh"
+pushd desktop-ui >/dev/null
+if command -v npm >/dev/null 2>&1; then
+  npm ci
+  npm run build:electron
+  npx electron-builder build --linux dir --config.extraMetadata.version="${VERSION}"
+  mkdir -p "${STAGING}/payload-desktop-ui"
+  cp -a dist_electron/linux-unpacked/. "${STAGING}/payload-desktop-ui/"
+else
+  log "ERRO: npm nao encontrado — necessario para compilar desktop-ui no AppImage"
+  exit 1
+fi
+popd >/dev/null
+
+log "Empacotando artefatos Linux (.deb + AppImage)..."
 bash "${REPO_ROOT}/installers/linux/package-installer.sh" "$VERSION" "$OUT_DIR" "$STAGING"
 
 log "Build Linux concluido."

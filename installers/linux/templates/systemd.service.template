@@ -11,6 +11,8 @@ Restart=on-failure
 RestartSec=10
 User=desktopservices
 Group=desktopservices
+Environment=DOTNET_ROOT=/usr/share/dotnet
+Environment=PATH=/usr/share/dotnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=DOTNET_EnableDiagnostics=0
 
 [Install]

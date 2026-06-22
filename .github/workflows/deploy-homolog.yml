@@ -349,7 +349,8 @@ jobs:
             notes+=$'\n\n- **Windows x64:** `DesktopServices.exe`'
           fi
           if [[ "${{ needs.build_linux.result }}" == "success" ]]; then
-            notes+=$'\n- **Linux x64:** `DesktopServices-*-linux-x64.tar.gz` (extrair e executar `sudo ./install.sh`)'
+            notes+=$'\n- **Linux x64 (.deb):** `desktopservices_*_amd64.deb` — CLI + servicos (`sudo dpkg -i`)'
+            notes+=$'\n- **Linux x64 (AppImage):** `DesktopServices-*-x86_64.AppImage` — CLI + servicos + UI (`sudo ./DesktopServices-*-x86_64.AppImage --install`, UI: `./DesktopServices-*-x86_64.AppImage --ui`)'
           fi
 
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then

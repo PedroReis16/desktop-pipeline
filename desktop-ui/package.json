@@ -49,7 +49,16 @@
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "executableName": "desktop-ui",
+      "category": "Office"
     }
   },
   "dependencies": {
