@@ -160,7 +160,7 @@ jobs:
   quality_node:
     needs: [prepare_build, secrets_scan]
     if: needs.prepare_build.outputs.node_matrix != '[]'
-    uses: ./.github/workflows/quality-node.yml
+    uses: ./.github/workflows/quality-angular.yml
     with:
       node_matrix: ${{ needs.prepare_build.outputs.node_matrix }}
 
