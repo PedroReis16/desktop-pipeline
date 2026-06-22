@@ -6,7 +6,7 @@ VERSION="${1:?Informe a versao}"
 OUTPUT_DIR="${2:?Informe o diretorio de saida}"
 STAGING_ROOT="${3:?Informe o diretorio de staging com os payloads}"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_NAME="DesktopServices-${VERSION}-linux-x64"
 STAGE="${STAGING_ROOT}/${PACKAGE_NAME}"
 TARBALL="${OUTPUT_DIR}/${PACKAGE_NAME}.tar.gz"
