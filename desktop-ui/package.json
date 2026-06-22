@@ -19,7 +19,8 @@
   "overrides": {
     "esbuild": "^0.28.1",
     "@babel/core": "^7.29.6",
-    "vite": "^7.3.5"
+    "vite": "^7.3.5",
+    "piscina": "^5.2.0"
   },
   "build": {
     "appId": "com.desktoppipeline.desktop-ui",
@@ -62,7 +63,7 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/build": "^22.0.1",
+    "@angular/build": "^22.0.0",
     "@angular/cli": "^22.0.1",
     "@angular/compiler-cli": "^22.0.0",
     "@eslint/js": "^10.0.1",
