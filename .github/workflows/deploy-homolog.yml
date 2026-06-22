@@ -20,6 +20,7 @@ permissions:
 
 env:
   DOTNET_CONFIGURATION: HomologWinX64
+  DOTNET_LINUX_CONFIGURATION: HomologLinuxX64
 
 jobs:
   # ─────────────────────────────────────────────
@@ -277,9 +278,13 @@ jobs:
   build_linux:
     needs: [ci_gate]
     if: inputs.build_linux == true
+    permissions:
+      contents: read
+      actions: write
     uses: ./.github/workflows/build-linux.yml
     with:
       version: ${{ inputs.version }}
+      configuration: ${{ vars.DOTNET_LINUX_CONFIGURATION }}
 
   # ─────────────────────────────────────────────
   # 6. RELEASE — publica os bundles como GitHub Release
