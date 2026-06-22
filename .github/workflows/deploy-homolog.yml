@@ -172,7 +172,7 @@ jobs:
     if: needs.prepare_build.outputs.dotnet_libraries_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
     with:
-      dotnet_libraries_matrix: ${{ needs.prepare_build.outputs.dotnet_libraries_matrix }}
+      dotnet_matrix: ${{ needs.prepare_build.outputs.dotnet_libraries_matrix }}
       run_integration_tests: false
 
   quality_services:
