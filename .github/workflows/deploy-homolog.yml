@@ -18,6 +18,9 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  DOTNET_CONFIGURATION: HomologWinX64
+
 jobs:
   # ─────────────────────────────────────────────
   # 1. PREPARE BUILD ENVIRONMENT
@@ -176,7 +179,7 @@ jobs:
       run_integration_tests: false
 
   quality_services:
-    needs: [prepare_build, secrets_scan, quality_service_libraries]
+    needs: [secrets_scan, quality_service_libraries]
     if: needs.prepare_build.outputs.dotnet_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
     with:
@@ -269,7 +272,7 @@ jobs:
     uses: ./.github/workflows/build-windows.yml
     with:
       version: ${{ inputs.version }}
-      configuration: HomologWinX64
+      configuration: ${{ vars.DOTNET_CONFIGURATION }}
 
   build_linux:
     needs: [ci_gate]
@@ -297,7 +300,7 @@ jobs:
         if: needs.build_windows.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: DesktopServices-HomologWinX64
+          name: DesktopServices-${{ env.DOTNET_CONFIGURATION }}
           path: release-assets/windows
 
       - name: Download Linux bundle
