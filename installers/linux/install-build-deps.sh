@@ -39,6 +39,25 @@ run_as_root() {
   fi
 }
 
+# Instalacoes em $HOME nao precisam de elevacao; usar sudo ali cria ~/.local
+# (e similares) como root e quebra o cache do NuGet em CI (~/.local/share).
+needs_sudo_for_dir() {
+  local dir="$1"
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && return 1
+  [[ "$dir" == "${HOME}"/* || "$dir" == "${HOME}" ]] && return 1
+  return 0
+}
+
+run_for_dir() {
+  local dir="$1"
+  shift
+  if needs_sudo_for_dir "$dir"; then
+    run_as_root "$@"
+  else
+    "$@"
+  fi
+}
+
 apt_get() {
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
     apt-get "$@"
@@ -112,7 +131,7 @@ ensure_dotnet() {
 
   local installer="/tmp/dotnet-install.sh"
   curl -fsSL https://dot.net/v1/dotnet-install.sh -o "$installer"
-  run_as_root bash "$installer" \
+  run_for_dir "$DOTNET_INSTALL_DIR" bash "$installer" \
     --channel "$DOTNET_CHANNEL" \
     --install-dir "$DOTNET_INSTALL_DIR"
 
@@ -153,9 +172,9 @@ ensure_go() {
 
   local go_root
   go_root="$(dirname "$GO_INSTALL_DIR")"
-  run_as_root rm -rf "$GO_INSTALL_DIR"
-  run_as_root mkdir -p "$go_root"
-  run_as_root tar -C "$go_root" -xzf "$tmp"
+  run_for_dir "$GO_INSTALL_DIR" rm -rf "$GO_INSTALL_DIR"
+  run_for_dir "$GO_INSTALL_DIR" mkdir -p "$go_root"
+  run_for_dir "$GO_INSTALL_DIR" tar -C "$go_root" -xzf "$tmp"
   rm -f "$tmp"
 
   ensure_path "${GO_INSTALL_DIR}/bin"
