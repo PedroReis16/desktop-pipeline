@@ -42,11 +42,9 @@ jobs:
           token: ${{github.token}}
           filters: |
             desktop_ui:
-              - 'desktop-ui/**'
-              - '!desktop-ui/**/*.md'
+              - 'desktop-ui/!(**/*.md)/**'
             desktop_cmd:
-              - 'desktop-cmd/**'
-              - '!desktop-cmd/**/*.md'
+              - 'desktop-cmd/!(**/*.md)/**'
             # Serviços .NET: cada um casado com o próprio código e o próprio
             # projeto de testes UNITÁRIOS. Os testes de integração ficam de
             # fora da CI (reservados para as pipelines de deploy).
