@@ -114,7 +114,7 @@ jobs:
               "path": "workerservices/Desktop.InterfaceAPI",
               "unit_tests": "workerservices/Tests/Unit/Desktop.InterfaceAPI.UnitTests",
               "integration_tests": "workerservices/Tests/Integration/Desktop.InterfaceAPI.IntegrationTests"
-            },
+            }
           ]
           EOF
           GO_MATRIX=$(jq -c '[.[] | select(.type == "go")]'    <<< "$PROJECTS")
@@ -125,20 +125,6 @@ jobs:
             echo "node_matrix=$NODE_MATRIX"
             echo "dotnet_matrix=$DOTNET_MATRIX"
           } >> "$GITHUB_OUTPUT"
-
-  # ─────────────────────────────────────────────
-  # 2. SCAN DE SEGREDOS
-  # Roda sempre, independente de quais projetos
-  # foram alterados — segredos podem aparecer em
-  # qualquer arquivo do repositório.
-  # ─────────────────────────────────────────────
-  secrets_scan:
-    name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@v2
@@ -151,7 +137,7 @@ jobs:
   # vazia, o job inteiro é pulado. Sem condicionais por step.
   # ─────────────────────────────────────────────
   quality_go:
-    needs: [prepare_build, secrets_scan]
+    needs: [prepare_build]
     if: needs.prepare_build.outputs.go_matrix != '[]'
     uses: ./.github/workflows/quality-golang.yml
     with:
@@ -162,7 +148,7 @@ jobs:
   # 3. QUALIDADE - NODE
   # ─────────────────────────────────────────────
   quality_node:
-    needs: [prepare_build, secrets_scan]
+    needs: [prepare_build]
     if: needs.prepare_build.outputs.node_matrix != '[]'
     uses: ./.github/workflows/quality-angular.yml
     with:
@@ -172,7 +158,7 @@ jobs:
   # 3. QUALIDADE - .NET
   # ─────────────────────────────────────────────
   quality_service_libraries:
-    needs: [prepare_build, secrets_scan]
+    needs: [prepare_build]
     if: needs.prepare_build.outputs.dotnet_libraries_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
     with:
@@ -180,7 +166,7 @@ jobs:
       run_integration_tests: false
 
   quality_services:
-    needs: [secrets_scan, quality_service_libraries]
+    needs: [quality_service_libraries]
     if: needs.prepare_build.outputs.dotnet_matrix != '[]'
     uses: ./.github/workflows/quality-csharp.yml
     with:
@@ -197,20 +183,13 @@ jobs:
     name: CI Gate
     runs-on: ubuntu-latest
     needs:
-      [
-        secrets_scan,
-        quality_go,
-        quality_node,
-        quality_service_libraries,
-        quality_services,
-      ]
+      [quality_go, quality_node, quality_service_libraries, quality_services]
     if: always()
     steps:
       - name: Check all results
         run: |
           set -euo pipefail
 
-          SECRETS="${{ needs.secrets_scan.result }}"
           GO="${{ needs.quality_go.result }}"
           NODE="${{ needs.quality_node.result }}"
           DOTNET_LIBRARIES="${{ needs.quality_service_libraries.result }}"
@@ -225,10 +204,6 @@ jobs:
           FAIL=0
 
           # Todos os jobs obrigatórios (rodam sempre)
-          if [[ "$SECRETS" != "success" ]]; then
-            echo "::error::Secrets scan falhou ou não completou com sucesso."
-            FAIL=1
-          fi
 
           if [[ "$AUTHORS" != "success" ]]; then
             echo "::error::Commit authors check falhou ou não completou com sucesso."
