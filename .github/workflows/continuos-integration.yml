@@ -280,7 +280,7 @@ jobs:
   quality_go:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.go_matrix != '[]'
-    uses: ./.github/workflows/ci-golang.yml
+    uses: ./.github/workflows/continuos-integration/ci-golang.yml
     with:
       go_matrix: ${{ needs.detect-changes.outputs.go_matrix }}
 
@@ -290,7 +290,7 @@ jobs:
   quality_node:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.node_matrix != '[]'
-    uses: ./.github/workflows/ci-angular.yml
+    uses: ./.github/workflows/continuos-integration/ci-angular.yml
     with:
       angular_matrix: ${{ needs.detect-changes.outputs.node_matrix }}
 
@@ -300,7 +300,7 @@ jobs:
   quality_dotnet:
     needs: [detect-changes, secrets_scan, commit_authors_check]
     if: needs.detect-changes.outputs.dotnet_matrix != '[]'
-    uses: ./.github/workflows/ci-csharp.yml
+    uses: ./.github/workflows/continuos-integration/ci-csharp.yml
     with:
       dotnet_matrix: ${{ needs.detect-changes.outputs.dotnet_matrix }}
 
