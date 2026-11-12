@@ -3,13 +3,101 @@ name: Publish Drive
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: "Version to build"
+        required: true
+        type: string
       pasta_destino:
         description: "Link da pasta (no repositório) onde o .exe será publicado"
         required: true
-  
+      build_linux:
+        { description: "Build Linux (x86_64)", type: boolean, default: true }
+      build_win:
+        { description: "Build Windows (x86_64)", type: boolean, default: true }
+
+permissions:
+  contents: read
+
 jobs:
-  publish-drive:
+  validate:
+    name: Validate build options
     runs-on: ubuntu-latest
     steps:
+      - name: Validate build options
+        env:
+          BUILD_LINUX: ${{ inputs.build_linux }}
+          BUILD_WIN: ${{ inputs.build_win }}
+          VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${VERSION// }" ]]; then
+            echo "::error::Versão não informada."
+            exit 1
+          fi
+
+          if [[ "$BUILD_LINUX" != "true" && "$BUILD_WIN" != "true" ]]; then
+            echo "::error::Selecione ao menos uma opção de build (Linux e/ou Windows)."
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────
+  # BUILD — sem etapas de qualidade/teste
+  # ─────────────────────────────────────────────
+  build_windows:
+    name: Build Windows version
+    needs: [validate]
+    if: inputs.build_win == true
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      version: ${{ inputs.version }}
+      configuration: HomologWinX64
+
+  build_linux:
+    name: Build Linux version
+    needs: [validate]
+    if: inputs.build_linux == true
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      version: ${{ inputs.version }}
+      configuration: HomologLinuxX64
+
+  # ─────────────────────────────────────────────
+  # PUBLISH — publica o executável no destino informado
+  # ─────────────────────────────────────────────
+  publish-drive:
+    needs: [build_windows, build_linux]
+    if: |
+      !cancelled() &&
+      (needs.build_windows.result == 'success' || needs.build_linux.result == 'success')
+    runs-on: ubuntu-latest
+
+    steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
+
+      - name: Download artifacts
+        if: needs.build_windows.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          name: DesktopServices-HomologWinX64
+          path: release-assets/windows
+
+      - name: Instalar cliente do Google Drive
+        run: pip install --quiet google-api-python-client google-auth
+
+      - name: Enviar .exe para Google Drive
+        env:
+          DRIVE_FOLDER: ${{ inputs.pasta_destino }}
+          ARTIFACT_DIR: release-assets/windows
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+        run: python3 .github/scripts/upload-to-drive.py
